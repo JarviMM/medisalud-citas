@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# Perfil test: configuracion usada por la suite automatizada.
+#
+# Vive en src/test/resources y no en src/main/resources para que no viaje dentro
+# del artefacto desplegable: es configuracion de la suite, no de la aplicacion.
+# Se activa con @ActiveProfiles("test") en las clases de test.
+# ---------------------------------------------------------------------------
+spring:
+  datasource:
+    # Base independiente de la de dev, para que ejecutar los tests no toque los
+    # datos con los que se este probando la aplicacion manualmente.
+    url: jdbc:h2:mem:medisalud_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    # Silencioso: la salida de mvn test debe mostrar resultados, no SQL.
+    show-sql: false
+
+  h2:
+    console:
+      enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.medisalud.agenda: INFO
+    org.hibernate.SQL: WARN

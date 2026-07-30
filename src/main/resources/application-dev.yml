@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Perfil dev: ejecucion local. Activo por defecto.
+#   mvn spring-boot:run
+# ---------------------------------------------------------------------------
+spring:
+  datasource:
+    url: jdbc:h2:mem:medisalud_dev;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    hibernate:
+      # El esquema se regenera en cada arranque: la BD es en memoria, no hay datos
+      # que preservar y asi el esquema nunca queda desincronizado de las entidades.
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  h2:
+    console:
+      # Inspeccion manual de los datos durante la evaluacion: http://localhost:8080/h2-console
+      # (JDBC URL: jdbc:h2:mem:medisalud_dev - usuario: sa - sin contrasena)
+      enabled: true
+      path: /h2-console
+
+logging:
+  level:
+    com.medisalud.agenda: DEBUG
+    org.hibernate.SQL: DEBUG

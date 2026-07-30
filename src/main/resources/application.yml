@@ -1,0 +1,43 @@
+# ---------------------------------------------------------------------------
+# Configuracion comun a todos los perfiles.
+# Lo que cambia entre entornos (datasource, ddl-auto, logging) vive en
+# application-dev.yml y application-test.yml.
+# ---------------------------------------------------------------------------
+spring:
+  application:
+    name: medisalud-agendamiento-citas
+
+  # Perfil por defecto: permite arrancar con un solo comando (mvn spring-boot:run)
+  # sin tener que pasar -Dspring-boot.run.profiles=dev.
+  profiles:
+    default: dev
+
+  jpa:
+    # Desactivado a proposito: evita mantener la sesion JPA abierta durante el
+    # renderizado de la respuesta. Fuerza a resolver el mapeo entidad -> DTO dentro
+    # de la transaccion del servicio, que es donde debe ocurrir.
+    open-in-view: false
+
+  jackson:
+    # Fechas en ISO-8601 (2026-08-03T09:00:00) en lugar de epoch millis.
+    serialization:
+      write-dates-as-timestamps: false
+    # No se serializan los campos nulos: las respuestas de error solo incluyen
+    # el detalle de campos cuando realmente lo hay.
+    default-property-inclusion: non_null
+
+server:
+  port: 8080
+  error:
+    # Nunca se filtran trazas ni detalles internos al cliente (ver seccion de
+    # seguridad del README). El @ControllerAdvice construye la respuesta de error.
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  api-docs:
+    path: /v3/api-docs

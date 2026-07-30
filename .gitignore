@@ -1,0 +1,57 @@
+# --- Maven ---
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# --- IntelliJ IDEA ---
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# --- Eclipse / STS ---
+.classpath
+.project
+.settings/
+.apt_generated/
+.factorypath
+.springBeans
+.sts4-cache/
+bin/
+
+# --- VS Code ---
+.vscode/
+.factorypath
+
+# --- NetBeans ---
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# --- Compilados y logs ---
+*.class
+*.log
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+hs_err_pid*
+replay_pid*
+
+# --- Base de datos H2 (por si se cambia a modo fichero) ---
+*.db
+*.mv.db
+*.trace.db
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db
+desktop.ini
