@@ -744,6 +744,9 @@ docker build -t medisalud/agendamiento-citas:1.0.0 .
 docker run --rm -p 8080:8080 medisalud/agendamiento-citas:1.0.0
 ```
 
+Verificado: la imagen construye en unos 55 s, pesa **397 MB**, arranca en **5 s** y precarga
+los tres médicos.
+
 El `Dockerfile` es multietapa:
 
 - **Construcción** con `maven:3.9-eclipse-temurin-21`. El `pom.xml` se copia antes que el
@@ -752,6 +755,10 @@ El `Dockerfile` es multietapa:
 - **Ejecución** con `eclipse-temurin:21-jre-alpine`. Solo el JRE y el jar: sin Maven, sin JDK
   y sin código fuente, lo que reduce el tamaño y la superficie expuesta.
 - La aplicación corre con un **usuario sin privilegios**, no como root.
+- El propietario del jar se fija en el propio `COPY --chown`, no con un `RUN chown` posterior.
+  Las capas son copy-on-write: un `chown` sobre el jar reescribe sus 56 MB enteros en una
+  capa nueva y deja el artefacto almacenado dos veces. Corregirlo bajó la imagen de 508 MB a
+  397 MB.
 - `-XX:MaxRAMPercentage=75.0` en lugar de un `-Xmx` fijo, para que la JVM se ajuste al límite
   de memoria que le imponga el orquestador sin reconstruir la imagen.
 - Arranca con el perfil **`docker`**, no `dev`: sin consola H2 y sin volcado de SQL a los

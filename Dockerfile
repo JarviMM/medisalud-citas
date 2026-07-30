@@ -32,8 +32,11 @@ FROM eclipse-temurin:21-jre-alpine AS ejecucion
 RUN addgroup -S medisalud && adduser -S -G medisalud medisalud
 
 WORKDIR /aplicacion
-COPY --from=construccion /proyecto/target/*.jar aplicacion.jar
-RUN chown medisalud:medisalud aplicacion.jar
+
+# El propietario se fija en el propio COPY, no con un RUN chown posterior. Las
+# capas son copy-on-write: un chown sobre el jar reescribiría sus 56 MB enteros
+# en una capa nueva, dejando el artefacto almacenado dos veces en la imagen.
+COPY --from=construccion --chown=medisalud:medisalud /proyecto/target/*.jar aplicacion.jar
 
 USER medisalud
 
