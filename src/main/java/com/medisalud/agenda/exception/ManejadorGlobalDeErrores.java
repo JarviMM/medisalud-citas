@@ -72,6 +72,13 @@ public class ManejadorGlobalDeErrores extends ResponseEntityExceptionHandler {
                 peticion.getRequestURI());
     }
 
+    @ExceptionHandler(SolicitudInvalidaException.class)
+    public ResponseEntity<ErrorResponse> manejarSolicitudInvalida(
+            SolicitudInvalidaException ex, HttpServletRequest peticion) {
+        return respuesta(HttpStatus.BAD_REQUEST, ex.getCodigo(), ex.getMessage(), null,
+                peticion.getRequestURI());
+    }
+
     // ------------------------------------------------------------- persistencia
 
     /**
