@@ -1,0 +1,16 @@
+# Todo lo que no hace falta para construir la imagen. Reduce el contexto que se
+# envía al demonio de Docker y, sobre todo, evita que un target/ local invalide
+# la caché de capas en cada build.
+target/
+.git/
+.github/
+.idea/
+.vscode/
+.settings/
+*.iml
+*.log
+*.md
+Dockerfile
+.dockerignore
+.gitignore
+.gitattributes

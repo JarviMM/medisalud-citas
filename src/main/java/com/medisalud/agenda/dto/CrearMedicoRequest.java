@@ -1,6 +1,7 @@
 package com.medisalud.agenda.dto;
 
 import com.medisalud.agenda.validator.TelefonoValido;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -21,20 +22,24 @@ import jakarta.validation.constraints.Size;
  */
 public record CrearMedicoRequest(
 
+        @Schema(example = "Dra. María González")
         @NotBlank(message = "El nombre completo es obligatorio.")
         @Size(min = 3, max = 100, message = "El nombre completo debe tener entre 3 y 100 caracteres.")
         String nombreCompleto,
 
+        @Schema(example = "Cardiología")
         @NotBlank(message = "La especialidad es obligatoria.")
         @Size(max = 80, message = "La especialidad no puede superar los 80 caracteres.")
         String especialidad,
 
         /* Opcional: si no se envia queda nulo y no se valida su contenido. */
+        @Schema(example = "555-1001", description = "Opcional. Al menos 7 dígitos si se envía.")
         @TelefonoValido
         @Size(max = 30, message = "El teléfono no puede superar los 30 caracteres.")
         String telefono,
 
         /* Opcional. */
+        @Schema(example = "maria.gonzalez@medisalud.com", description = "Opcional.")
         @Email(message = "El email debe tener un formato válido.")
         @Size(max = 150, message = "El email no puede superar los 150 caracteres.")
         String email) {

@@ -1,5 +1,6 @@
 package com.medisalud.agenda.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 
@@ -16,6 +17,9 @@ import java.time.LocalDateTime;
  */
 public record ReprogramarCitaRequest(
 
+        @Schema(
+                example = "2026-08-03T11:00:00",
+                description = "Debe ser distinta de la que la cita ya tiene.")
         @NotNull(message = "La nueva fecha y hora de la cita son obligatorias.")
         LocalDateTime nuevaFechaHora) {
 }

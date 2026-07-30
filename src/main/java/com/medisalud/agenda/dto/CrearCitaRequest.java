@@ -1,5 +1,6 @@
 package com.medisalud.agenda.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import java.time.LocalDateTime;
@@ -20,14 +21,19 @@ import java.time.LocalDateTime;
  */
 public record CrearCitaRequest(
 
+        @Schema(example = "1")
         @NotNull(message = "El identificador del médico es obligatorio.")
         @Positive(message = "El identificador del médico debe ser un número positivo.")
         Long medicoId,
 
+        @Schema(example = "1")
         @NotNull(message = "El identificador del paciente es obligatorio.")
         @Positive(message = "El identificador del paciente debe ser un número positivo.")
         Long pacienteId,
 
+        @Schema(
+                example = "2026-08-03T09:00:00",
+                description = "Fecha y hora futura, en punto o y media, dentro del horario de atención.")
         @NotNull(message = "La fecha y hora de la cita son obligatorias.")
         LocalDateTime fechaHora) {
 }
