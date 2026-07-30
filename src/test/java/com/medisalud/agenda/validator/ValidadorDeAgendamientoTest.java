@@ -10,12 +10,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.medisalud.agenda.domain.CalendarioLaboral;
 import com.medisalud.agenda.domain.EstadoCita;
+import com.medisalud.agenda.domain.EstadoDeBloqueo;
 import com.medisalud.agenda.domain.Medico;
 import com.medisalud.agenda.domain.Paciente;
 import com.medisalud.agenda.exception.CodigoError;
 import com.medisalud.agenda.exception.ConflictoDeNegocioException;
 import com.medisalud.agenda.exception.ExcepcionDeDominio;
 import com.medisalud.agenda.repository.CitaRepository;
+import com.medisalud.agenda.service.PoliticaDePenalizaciones;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -30,7 +32,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Reglas de agendamiento RN-01 a RN-04.
+ * Reglas de agendamiento RN-01 a RN-05.
  *
  * <p>El reloj se fija en el lunes 3 de agosto de 2026 a las 07:00. Sin un {@link Clock}
  * inyectado, la regla de "no agendar en el pasado" solo podria probarse con fechas
@@ -51,18 +53,24 @@ class ValidadorDeAgendamientoTest {
     private static final LocalDateTime FRANJA_VALIDA = LUNES.atTime(9, 0);
 
     @Mock private CitaRepository citaRepository;
+    @Mock private PoliticaDePenalizaciones politicaDePenalizaciones;
 
     private ValidadorDeAgendamiento validador;
 
     @BeforeEach
     void prepararValidador() {
-        validador = new ValidadorDeAgendamiento(
-                new CalendarioLaboral(fecha -> false), citaRepository, RELOJ);
+        validador = crearValidador(new CalendarioLaboral(fecha -> false));
+    }
+
+    private ValidadorDeAgendamiento crearValidador(CalendarioLaboral calendario) {
+        return new ValidadorDeAgendamiento(
+                calendario, citaRepository, politicaDePenalizaciones, RELOJ);
     }
 
     @Test
     @DisplayName("Una solicitud que cumple todas las reglas no lanza nada")
     void solicitudValida() {
+        sinBloqueo();
         agendasLibres();
 
         assertThatCode(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
@@ -80,7 +88,7 @@ class ValidadorDeAgendamientoTest {
                     unMedico(), unPaciente(null), LUNES.atTime(8, 15))))
                     .isEqualTo(CodigoError.FRANJA_NO_VALIDA);
 
-            verifyNoInteractions(citaRepository);
+            verifyNoInteractions(citaRepository, politicaDePenalizaciones);
         }
 
         @Test
@@ -110,6 +118,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("El sábado por la mañana sí hay atención")
         void sabadoPorLaManana() {
+            sinBloqueo();
             agendasLibres();
 
             assertThatCode(() -> validador.validar(
@@ -120,8 +129,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("Un festivo deja el día sin atención")
         void festivo() {
-            var conFestivo = new ValidadorDeAgendamiento(
-                    new CalendarioLaboral(fecha -> fecha.equals(LUNES)), citaRepository, RELOJ);
+            var conFestivo = crearValidador(new CalendarioLaboral(fecha -> fecha.equals(LUNES)));
 
             assertThat(codigoDe(() -> conFestivo.validar(
                     unMedico(), unPaciente(null), FRANJA_VALIDA)))
@@ -140,7 +148,7 @@ class ValidadorDeAgendamientoTest {
                     unMedico(), unPaciente(null), VIERNES_ANTERIOR.atTime(9, 0))))
                     .isEqualTo(CodigoError.FECHA_EN_EL_PASADO);
 
-            verifyNoInteractions(citaRepository);
+            verifyNoInteractions(citaRepository, politicaDePenalizaciones);
         }
     }
 
@@ -151,6 +159,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("Sin fecha de nacimiento se agenda igual: edad 0 es válida")
         void sinFechaDeNacimiento() {
+            sinBloqueo();
             agendasLibres();
 
             assertThatCode(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
@@ -169,9 +178,57 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("Un recién nacido puede agendar")
         void recienNacido() {
+            sinBloqueo();
             agendasLibres();
 
             assertThatCode(() -> validador.validar(unMedico(), unPaciente(LUNES), FRANJA_VALIDA))
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    @Nested
+    @DisplayName("RN-05: paciente bloqueado por cancelaciones tardías")
+    class PacienteBloqueado {
+
+        @Test
+        @DisplayName("Un paciente bloqueado no puede agendar y recibe el motivo exacto")
+        void bloqueadoNoAgenda() {
+            EstadoDeBloqueo bloqueo = EstadoDeBloqueo.conBloqueo(
+                    3, LocalDateTime.of(2026, 8, 15, 14, 30));
+            given(politicaDePenalizaciones.evaluarBloqueo(2L)).willReturn(bloqueo);
+            given(politicaDePenalizaciones.describirBloqueo(bloqueo))
+                    .willReturn("No puede agendar hasta el 15/08/2026 a las 14:30.");
+
+            assertThatThrownBy(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
+                    .isInstanceOf(ConflictoDeNegocioException.class)
+                    .hasMessage("No puede agendar hasta el 15/08/2026 a las 14:30.")
+                    .extracting(ex -> ((ExcepcionDeDominio) ex).getCodigo())
+                    .isEqualTo(CodigoError.PACIENTE_BLOQUEADO);
+        }
+
+        @Test
+        @DisplayName("El bloqueo se comprueba antes que la ocupación de las agendas")
+        void elBloqueoTienePrioridadSobreElSolapamiento() {
+            EstadoDeBloqueo bloqueo = EstadoDeBloqueo.conBloqueo(
+                    3, LocalDateTime.of(2026, 8, 15, 14, 30));
+            given(politicaDePenalizaciones.evaluarBloqueo(2L)).willReturn(bloqueo);
+            given(politicaDePenalizaciones.describirBloqueo(bloqueo)).willReturn("bloqueado");
+
+            assertThat(codigoDe(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA)))
+                    .isEqualTo(CodigoError.PACIENTE_BLOQUEADO);
+
+            // Al paciente bloqueado no le sirve saber que además la franja estaba ocupada.
+            verifyNoInteractions(citaRepository);
+        }
+
+        @Test
+        @DisplayName("Con menos de tres penalizaciones vigentes se agenda con normalidad")
+        void noBloqueadoAgenda() {
+            given(politicaDePenalizaciones.evaluarBloqueo(2L))
+                    .willReturn(EstadoDeBloqueo.sinBloqueo(2));
+            agendasLibres();
+
+            assertThatCode(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
                     .doesNotThrowAnyException();
         }
     }
@@ -183,6 +240,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("RN-02: el médico ya tiene una cita programada en esa franja")
         void medicoOcupado() {
+            sinBloqueo();
             given(citaRepository.existsByMedicoIdAndFechaHoraAndEstado(
                     eq(1L), eq(FRANJA_VALIDA), eq(EstadoCita.PROGRAMADA))).willReturn(true);
 
@@ -195,6 +253,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("RN-04: el paciente ya tiene cita en esa franja, aunque sea con otro médico")
         void pacienteOcupado() {
+            sinBloqueo();
             given(citaRepository.existsByMedicoIdAndFechaHoraAndEstado(any(), any(), any()))
                     .willReturn(false);
             given(citaRepository.existsByPacienteIdAndFechaHoraAndEstado(
@@ -208,6 +267,11 @@ class ValidadorDeAgendamientoTest {
     }
 
     // ------------------------------------------------------------------ apoyo
+
+    private void sinBloqueo() {
+        given(politicaDePenalizaciones.evaluarBloqueo(any()))
+                .willReturn(EstadoDeBloqueo.sinBloqueo(0));
+    }
 
     private void agendasLibres() {
         given(citaRepository.existsByMedicoIdAndFechaHoraAndEstado(any(), any(), any()))

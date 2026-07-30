@@ -5,6 +5,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -12,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.medisalud.agenda.config.ClockConfig;
 import com.medisalud.agenda.domain.EstadoCita;
+import com.medisalud.agenda.dto.CancelacionResponse;
 import com.medisalud.agenda.dto.CitaResponse;
 import com.medisalud.agenda.dto.MedicoResumen;
 import com.medisalud.agenda.dto.PacienteResumen;
@@ -24,6 +26,7 @@ import com.medisalud.agenda.service.CitaService;
 import java.time.LocalDateTime;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -156,6 +159,90 @@ class CitaControllerTest {
     }
 
     @Test
+    @DisplayName("RN-05: un paciente bloqueado recibe 409 indicando desde cuándo podrá agendar")
+    void pacienteBloqueado() throws Exception {
+        willThrow(new ConflictoDeNegocioException(CodigoError.PACIENTE_BLOQUEADO,
+                "El paciente acumula 3 cancelaciones tardías en los últimos 30 días "
+                        + "y no puede agendar nuevas citas hasta el 15/08/2026 a las 14:30."))
+                .given(citaService).reservar(any());
+
+        mockMvc.perform(post("/api/citas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CUERPO_VALIDO))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.codigo").value("PACIENTE_BLOQUEADO"))
+                .andExpect(jsonPath("$.mensaje").value(
+                        Matchers.containsString("hasta el 15/08/2026 a las 14:30")));
+    }
+
+    @Nested
+    @DisplayName("PATCH /api/citas/{id}/cancelar")
+    class Cancelacion {
+
+        @Test
+        @DisplayName("Cancelar a tiempo devuelve 200 sin penalización")
+        void cancelaSinPenalizacion() throws Exception {
+            given(citaService.cancelar(10L)).willReturn(new CancelacionResponse(
+                    unaCitaCancelada(), false, null, 0, false, null));
+
+            mockMvc.perform(patch("/api/citas/10/cancelar"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.cita.estado").value("CANCELADA"))
+                    .andExpect(jsonPath("$.cita.fechaCancelacion").value("2026-08-03T06:00:00"))
+                    .andExpect(jsonPath("$.penalizacionRegistrada").value(false))
+                    .andExpect(jsonPath("$.penalizacionesVigentes").value(0))
+                    .andExpect(jsonPath("$.pacienteBloqueado").value(false))
+                    // los campos que no aplican desaparecen del JSON
+                    .andExpect(jsonPath("$.motivoPenalizacion").doesNotExist())
+                    .andExpect(jsonPath("$.puedeAgendarDesde").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("Cancelar tarde avisa de la penalización y del bloqueo resultante")
+        void cancelaConPenalizacionYBloqueo() throws Exception {
+            given(citaService.cancelar(10L)).willReturn(new CancelacionResponse(
+                    unaCitaCancelada(),
+                    true,
+                    "Cancelación con 45 min de antelación.",
+                    3,
+                    true,
+                    LocalDateTime.of(2026, 8, 15, 14, 30)));
+
+            mockMvc.perform(patch("/api/citas/10/cancelar"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.penalizacionRegistrada").value(true))
+                    .andExpect(jsonPath("$.motivoPenalizacion")
+                            .value("Cancelación con 45 min de antelación."))
+                    .andExpect(jsonPath("$.penalizacionesVigentes").value(3))
+                    .andExpect(jsonPath("$.pacienteBloqueado").value(true))
+                    .andExpect(jsonPath("$.puedeAgendarDesde").value("2026-08-15T14:30:00"));
+        }
+
+        @Test
+        @DisplayName("Cancelar una cita ya cancelada devuelve 409")
+        void citaYaCancelada() throws Exception {
+            willThrow(new ConflictoDeNegocioException(CodigoError.CITA_NO_CANCELABLE,
+                    "Solo se pueden cancelar citas programadas; esta cita ya está cancelada."))
+                    .given(citaService).cancelar(10L);
+
+            mockMvc.perform(patch("/api/citas/10/cancelar"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.codigo").value("CITA_NO_CANCELABLE"));
+        }
+
+        @Test
+        @DisplayName("Cancelar una cita inexistente devuelve 404")
+        void citaInexistente() throws Exception {
+            willThrow(new RecursoNoEncontradoException("la cita", 99L))
+                    .given(citaService).cancelar(99L);
+
+            mockMvc.perform(patch("/api/citas/99/cancelar"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.codigo").value("RECURSO_NO_ENCONTRADO"));
+        }
+    }
+
+    @Test
     @DisplayName("GET devuelve la cita")
     void obtieneCita() throws Exception {
         given(citaService.obtenerPorId(10L)).willReturn(unaCitaProgramada());
@@ -174,6 +261,17 @@ class CitaControllerTest {
                 LocalDateTime.of(2026, 8, 3, 9, 0),
                 EstadoCita.PROGRAMADA,
                 null,
+                null);
+    }
+
+    private static CitaResponse unaCitaCancelada() {
+        return new CitaResponse(
+                10L,
+                new MedicoResumen(1L, "Dra. María González", "Cardiología"),
+                new PacienteResumen(2L, "Juan Pérez", "1020304050"),
+                LocalDateTime.of(2026, 8, 3, 9, 0),
+                EstadoCita.CANCELADA,
+                LocalDateTime.of(2026, 8, 3, 6, 0),
                 null);
     }
 }

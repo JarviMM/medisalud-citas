@@ -66,6 +66,12 @@ public enum CodigoError {
     /** La franja fue ocupada por otra peticion concurrente entre la validacion y el INSERT. */
     FRANJA_OCUPADA,
 
+    /** RN-05: el paciente acumula tres o mas cancelaciones tardias en los ultimos 30 dias. */
+    PACIENTE_BLOQUEADO,
+
+    /** Solo se pueden cancelar o reprogramar citas en estado PROGRAMADA. */
+    CITA_NO_CANCELABLE,
+
     /** La operacion viola una restriccion de integridad del modelo. */
     CONFLICTO_DE_INTEGRIDAD,
 

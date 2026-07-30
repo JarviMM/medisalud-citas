@@ -2,12 +2,14 @@ package com.medisalud.agenda.validator;
 
 import com.medisalud.agenda.domain.CalendarioLaboral;
 import com.medisalud.agenda.domain.EstadoCita;
+import com.medisalud.agenda.domain.EstadoDeBloqueo;
 import com.medisalud.agenda.domain.Medico;
 import com.medisalud.agenda.domain.Paciente;
 import com.medisalud.agenda.exception.CodigoError;
 import com.medisalud.agenda.exception.ConflictoDeNegocioException;
 import com.medisalud.agenda.exception.SolicitudInvalidaException;
 import com.medisalud.agenda.repository.CitaRepository;
+import com.medisalud.agenda.service.PoliticaDePenalizaciones;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -18,7 +20,7 @@ import org.springframework.stereotype.Component;
 /**
  * Aplica las reglas de negocio que debe cumplir una cita para poder agendarse.
  *
- * <p>Vive fuera de {@code CitaService} porque son cinco reglas independientes con sus
+ * <p>Vive fuera de {@code CitaService} porque son varias reglas independientes con sus
  * propias dependencias; dejarlas dentro del servicio lo convertiria en una clase que
  * valida, orquesta y persiste a la vez. Aqui se puede probar cada regla contra este objeto
  * aislado, sin montar el caso de uso completo.</p>
@@ -27,13 +29,15 @@ import org.springframework.stereotype.Component;
  * {@code ReglaDeAgendamiento} y recorrerlas con un {@code List} inyectado. Se descarto: con
  * un conjunto fijo y conocido de reglas, esa indireccion esconde el orden de evaluacion
  * (que si importa: no tiene sentido consultar la agenda del medico para una hora que ni
- * siquiera es una franja valida) y obliga a abrir cinco ficheros para entender que se
+ * siquiera es una franja valida) y obliga a abrir un fichero por regla para entender que se
  * valida. Un metodo publico que enumera las reglas en orden se lee de un vistazo. La
  * abstraccion se justificaria si las reglas fueran configurables por sede o por
  * especialidad, que no es el caso.</p>
  *
- * <p>El orden es de lo mas barato y general a lo mas especifico: primero lo que se decide
- * sin tocar la base de datos, y solo despues las dos consultas de solapamiento.</p>
+ * <p>El orden va de lo mas barato a lo mas caro, y dentro de eso, de lo mas general a lo
+ * mas concreto: primero lo que se decide sin tocar la base de datos, despues el bloqueo del
+ * paciente (que invalida cualquier franja) y por ultimo las dos consultas de
+ * solapamiento.</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -43,6 +47,7 @@ public class ValidadorDeAgendamiento {
 
     private final CalendarioLaboral calendario;
     private final CitaRepository citaRepository;
+    private final PoliticaDePenalizaciones politicaDePenalizaciones;
     private final Clock clock;
 
     /**
@@ -60,6 +65,7 @@ public class ValidadorDeAgendamiento {
         validarAlineacionDeFranja(fechaHora);
         validarHorarioLaboral(fechaHora);
         validarFechaDeNacimiento(paciente);
+        validarQueNoEsteBloqueado(paciente);
         validarAgendaDelMedico(medico, fechaHora);
         validarAgendaDelPaciente(paciente, fechaHora);
     }
@@ -117,6 +123,20 @@ public class ValidadorDeAgendamiento {
         if (nacimiento != null && nacimiento.isAfter(LocalDate.now(clock))) {
             throw new SolicitudInvalidaException(CodigoError.FECHA_NACIMIENTO_INVALIDA,
                     "El paciente tiene registrada una fecha de nacimiento futura; corrija sus datos antes de agendar.");
+        }
+    }
+
+    /**
+     * RN-05. Se comprueba antes que la ocupacion de las agendas a proposito: a un paciente
+     * bloqueado no le sirve de nada enterarse de que ademas la franja estaba cogida, porque
+     * ninguna otra franja le va a funcionar tampoco. El primer error que recibe debe ser el
+     * unico sobre el que puede actuar.
+     */
+    private void validarQueNoEsteBloqueado(Paciente paciente) {
+        EstadoDeBloqueo bloqueo = politicaDePenalizaciones.evaluarBloqueo(paciente.getId());
+        if (bloqueo.bloqueado()) {
+            throw new ConflictoDeNegocioException(CodigoError.PACIENTE_BLOQUEADO,
+                    politicaDePenalizaciones.describirBloqueo(bloqueo));
         }
     }
 

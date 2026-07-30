@@ -1,5 +1,6 @@
 package com.medisalud.agenda.controller;
 
+import com.medisalud.agenda.dto.CancelacionResponse;
 import com.medisalud.agenda.dto.CitaResponse;
 import com.medisalud.agenda.dto.CrearCitaRequest;
 import com.medisalud.agenda.service.CitaService;
@@ -12,6 +13,7 @@ import java.net.URI;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -52,6 +54,23 @@ public class CitaController {
                 .buildAndExpand(creada.id())
                 .toUri();
         return ResponseEntity.created(ubicacion).body(creada);
+    }
+
+    @PatchMapping("/{id}/cancelar")
+    @Operation(
+            summary = "Cancela una cita",
+            description = """
+                    Cancelar con menos de 2 horas de antelación registra una penalización para el
+                    paciente (RN-05). La respuesta indica si se penalizó, cuántas penalizaciones
+                    vigentes acumula y, si acaba de quedar bloqueado, desde cuándo podrá volver a
+                    agendar. Cancelar con 2 horas exactas o más no penaliza.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Cita cancelada"),
+            @ApiResponse(responseCode = "404", description = "No existe una cita con ese id"),
+            @ApiResponse(responseCode = "409", description = "La cita ya estaba cancelada o atendida")
+    })
+    public CancelacionResponse cancelar(@PathVariable Long id) {
+        return citaService.cancelar(id);
     }
 
     @GetMapping("/{id}")
