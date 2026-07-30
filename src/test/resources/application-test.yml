@@ -19,6 +19,11 @@ spring:
       ddl-auto: create-drop
     # Silencioso: la salida de mvn test debe mostrar resultados, no SQL.
     show-sql: false
+    properties:
+      hibernate:
+        # Permite que un test cuente las consultas realmente ejecutadas y afirme que un
+        # listado resuelve en una sola, en lugar de confiar en que el @EntityGraph funciona.
+        generate_statistics: true
 
   h2:
     console:

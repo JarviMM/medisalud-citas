@@ -5,8 +5,10 @@ import com.medisalud.agenda.dto.ErrorResponse.DetalleCampo;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
@@ -171,8 +173,7 @@ public class ManejadorGlobalDeErrores extends ResponseEntityExceptionHandler {
                     "El cuerpo de la petición no es un JSON válido o algún campo tiene un formato incorrecto.";
             case MissingServletRequestParameterException falta ->
                     "Falta el parámetro obligatorio '%s'.".formatted(falta.getParameterName());
-            case MethodArgumentTypeMismatchException desajuste ->
-                    "El parámetro '%s' no tiene un formato válido.".formatted(desajuste.getName());
+            case MethodArgumentTypeMismatchException desajuste -> mensajeDeParametro(desajuste);
             case TypeMismatchException ignorada ->
                     "Algún parámetro de la petición no tiene el formato esperado.";
             case HttpRequestMethodNotSupportedException metodo ->
@@ -182,6 +183,25 @@ public class ManejadorGlobalDeErrores extends ResponseEntityExceptionHandler {
             case NoResourceFoundException ignorada -> "El recurso solicitado no existe.";
             default -> status.is5xxServerError() ? MENSAJE_ERROR_INTERNO : "La petición no es válida.";
         };
+    }
+
+    /**
+     * Mensaje para un parametro que no se pudo convertir al tipo esperado.
+     *
+     * <p>Cuando ese tipo es un enum se enumeran los valores admitidos. Es informacion
+     * nuestra, no del usuario, y ahorra al cliente tener que abrir la documentacion para
+     * descubrir que {@code estado=cancelada} debia escribirse {@code CANCELADA}.</p>
+     */
+    private String mensajeDeParametro(MethodArgumentTypeMismatchException ex) {
+        Class<?> tipoEsperado = ex.getRequiredType();
+        if (tipoEsperado != null && tipoEsperado.isEnum()) {
+            String admitidos = Arrays.stream(tipoEsperado.getEnumConstants())
+                    .map(Object::toString)
+                    .collect(Collectors.joining(", "));
+            return "El parámetro '%s' solo admite los valores: %s."
+                    .formatted(ex.getName(), admitidos);
+        }
+        return "El parámetro '%s' no tiene un formato válido.".formatted(ex.getName());
     }
 
     private CodigoError codigoPara(HttpStatusCode status) {

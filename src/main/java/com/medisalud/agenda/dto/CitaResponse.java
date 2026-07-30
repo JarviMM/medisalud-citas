@@ -13,9 +13,10 @@ import java.time.LocalDateTime;
  * de un listado.</p>
  *
  * <p><b>Aviso sobre carga perezosa:</b> {@link #desde(Cita)} navega a {@code medico} y
- * {@code paciente}, que son asociaciones {@code LAZY}. Debe invocarse dentro de la
- * transaccion del servicio. En los listados eso provoca una consulta por cita (N+1); se
- * resuelve con un {@code JOIN FETCH} al implementar el listado con filtros (RF-06).</p>
+ * {@code paciente}, que son asociaciones {@code LAZY}, asi que debe invocarse dentro de la
+ * transaccion del servicio. En un listado esto provocaria dos consultas por cita; por eso
+ * la consulta del listado declara un {@code @EntityGraph} que trae ambas asociaciones en el
+ * mismo SELECT. Cualquier consulta nueva que devuelva varias citas debe hacer lo mismo.</p>
  */
 public record CitaResponse(
         Long id,

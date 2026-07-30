@@ -3,6 +3,7 @@ package com.medisalud.agenda.service;
 import com.medisalud.agenda.domain.Cita;
 import com.medisalud.agenda.domain.EstadoCita;
 import com.medisalud.agenda.domain.EstadoDeBloqueo;
+import com.medisalud.agenda.domain.FiltroDeCitas;
 import com.medisalud.agenda.domain.Medico;
 import com.medisalud.agenda.domain.Paciente;
 import com.medisalud.agenda.domain.PenalizacionPaciente;
@@ -16,13 +17,16 @@ import com.medisalud.agenda.exception.ConflictoDeNegocioException;
 import com.medisalud.agenda.exception.RecursoNoEncontradoException;
 import com.medisalud.agenda.exception.SolicitudInvalidaException;
 import com.medisalud.agenda.repository.CitaRepository;
+import com.medisalud.agenda.repository.EspecificacionesDeCita;
 import com.medisalud.agenda.validator.ValidadorDeAgendamiento;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +42,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class CitaService {
+
+    /** Orden estable: cronologico y, a igual instante, por identificador. */
+    private static final Sort ORDEN_CRONOLOGICO =
+            Sort.by(Sort.Order.asc("fechaHora"), Sort.Order.asc("id"));
 
     private final CitaRepository citaRepository;
     private final MedicoService medicoService;
@@ -186,6 +194,25 @@ public class CitaService {
                     "Solo se pueden %s citas programadas; esta cita ya está %s."
                             .formatted(operacion, cita.getEstado().name().toLowerCase(Locale.ROOT)));
         }
+    }
+
+    /**
+     * Lista las citas que cumplen los filtros indicados (RF-06).
+     *
+     * <p>El orden es cronologico y se desempata por identificador. Sin un {@code ORDER BY}
+     * explicito el motor no garantiza ningun orden, y dos peticiones identicas podrian
+     * devolver las mismas citas en distinta secuencia.</p>
+     *
+     * <p><b>Limitacion conocida:</b> el listado no esta paginado, porque el enunciado define
+     * la respuesta como una lista. Con un volumen real de citas habria que paginarlo; el
+     * repositorio ya extiende {@code JpaSpecificationExecutor}, asi que seria cambiar la
+     * firma por una que acepte {@code Pageable} sin tocar los filtros.</p>
+     */
+    public List<CitaResponse> listar(FiltroDeCitas filtro) {
+        return citaRepository.findAll(EspecificacionesDeCita.segun(filtro), ORDEN_CRONOLOGICO)
+                .stream()
+                .map(CitaResponse::desde)
+                .toList();
     }
 
     public CitaResponse obtenerPorId(Long id) {

@@ -4,6 +4,9 @@ import com.medisalud.agenda.domain.Cita;
 import com.medisalud.agenda.domain.EstadoCita;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -23,6 +26,22 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public interface CitaRepository extends JpaRepository<Cita, Long>, JpaSpecificationExecutor<Cita> {
+
+    /**
+     * Listado filtrado de citas, con el medico y el paciente ya cargados (RF-06).
+     *
+     * <p>Se redeclara el metodo heredado de {@link JpaSpecificationExecutor} solo para
+     * anotarlo: sin el grafo, mapear cada cita a su DTO navegaria a dos asociaciones
+     * perezosas y lanzaria dos consultas <i>por cita</i>. Un listado de cincuenta citas
+     * pasaria de una consulta a ciento una. Con {@code @EntityGraph}, Hibernate resuelve las
+     * tres tablas en un unico SELECT con dos JOIN.</p>
+     *
+     * <p>Es la contrapartida de haber declarado las asociaciones {@code LAZY}: por defecto
+     * no se carga nada, y cada consulta declara explicitamente lo que necesita.</p>
+     */
+    @Override
+    @EntityGraph(attributePaths = {"medico", "paciente"})
+    List<Cita> findAll(Specification<Cita> especificacion, Sort orden);
 
     /** RN-02: el medico ya tiene una cita vigente en esa franja exacta. */
     boolean existsByMedicoIdAndFechaHoraAndEstado(
