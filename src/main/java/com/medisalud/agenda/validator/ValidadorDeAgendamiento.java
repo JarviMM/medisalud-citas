@@ -51,8 +51,8 @@ public class ValidadorDeAgendamiento {
     private final Clock clock;
 
     /**
-     * Valida una solicitud de cita y no devuelve nada: o pasa, o lanza la excepcion que
-     * describe la primera regla incumplida.
+     * Valida una cita nueva y no devuelve nada: o pasa, o lanza la excepcion que describe la
+     * primera regla incumplida.
      *
      * @param medico     medico ya resuelto
      * @param paciente   paciente ya resuelto
@@ -60,12 +60,43 @@ public class ValidadorDeAgendamiento {
      * @throws SolicitudInvalidaException   400: la cita no es posible en ningun escenario
      * @throws ConflictoDeNegocioException  409: choca con el estado actual de las agendas
      */
-    public void validar(Medico medico, Paciente paciente, LocalDateTime fechaHora) {
+    public void validarReserva(Medico medico, Paciente paciente, LocalDateTime fechaHora) {
+        validarFranjaSolicitada(paciente, fechaHora);
+        validarQueNoEsteBloqueado(paciente);
+        validarAgendasLibres(medico, paciente, fechaHora);
+    }
+
+    /**
+     * Valida el nuevo horario de una reprogramacion (RN-06).
+     *
+     * <p><b>Deliberadamente no comprueba el bloqueo de la RN-05</b>, y es la unica
+     * diferencia con {@link #validarReserva}. El enunciado enumera para la reprogramacion la
+     * RN-02 y la RN-04, no la RN-05, y la lectura literal coincide con la sensata: un
+     * paciente bloqueado que no pudiera mover una cita ya existente solo tendria dos
+     * salidas, no presentarse o cancelarla, y cancelar le sumaria <i>otra</i> penalizacion.
+     * Bloquear la reprogramacion empujaria justo a la conducta que la regla quiere
+     * evitar.</p>
+     *
+     * <p>Reprogramar tarde si registra penalizacion: lo que no hace es impedir la operacion
+     * que la genera. La distincion es entre castigar el aviso tardio, que se sigue haciendo,
+     * y quitarle al paciente la unica via ordenada de resolverlo.</p>
+     */
+    public void validarReprogramacion(Medico medico, Paciente paciente, LocalDateTime fechaHora) {
+        validarFranjaSolicitada(paciente, fechaHora);
+        validarAgendasLibres(medico, paciente, fechaHora);
+    }
+
+    /** Reglas que dependen solo de la franja y del paciente, sin tocar la base de datos. */
+    private void validarFranjaSolicitada(Paciente paciente, LocalDateTime fechaHora) {
         validarQueEstaEnElFuturo(fechaHora);
         validarAlineacionDeFranja(fechaHora);
         validarHorarioLaboral(fechaHora);
         validarFechaDeNacimiento(paciente);
-        validarQueNoEsteBloqueado(paciente);
+    }
+
+    /** RN-02 y RN-04: las dos consultas de solapamiento. */
+    private void validarAgendasLibres(
+            Medico medico, Paciente paciente, LocalDateTime fechaHora) {
         validarAgendaDelMedico(medico, fechaHora);
         validarAgendaDelPaciente(paciente, fechaHora);
     }

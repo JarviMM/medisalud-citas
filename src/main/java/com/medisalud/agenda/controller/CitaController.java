@@ -3,6 +3,8 @@ package com.medisalud.agenda.controller;
 import com.medisalud.agenda.dto.CancelacionResponse;
 import com.medisalud.agenda.dto.CitaResponse;
 import com.medisalud.agenda.dto.CrearCitaRequest;
+import com.medisalud.agenda.dto.ReprogramacionResponse;
+import com.medisalud.agenda.dto.ReprogramarCitaRequest;
 import com.medisalud.agenda.service.CitaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -71,6 +73,28 @@ public class CitaController {
     })
     public CancelacionResponse cancelar(@PathVariable Long id) {
         return citaService.cancelar(id);
+    }
+
+    @PatchMapping("/{id}/reprogramar")
+    @Operation(
+            summary = "Reprograma una cita a otro horario",
+            description = """
+                    Cancela la cita original y crea una nueva en el horario indicado, enlazada a la
+                    anterior por citaOrigenId (RN-06). La operación es atómica: si el nuevo horario
+                    no está libre, la cita original se conserva intacta. Reprogramar con menos de 2
+                    horas de antelación también penaliza (RN-05), pero un paciente bloqueado sí
+                    puede reprogramar: lo que no puede es agendar citas nuevas.""")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Cita reprogramada"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Falta la fecha, está desalineada, fuera de horario, en el pasado o es la que ya tenía"),
+            @ApiResponse(responseCode = "404", description = "No existe una cita con ese id"),
+            @ApiResponse(responseCode = "409", description = "La cita no está programada o el nuevo horario está ocupado")
+    })
+    public ReprogramacionResponse reprogramar(
+            @PathVariable Long id, @Valid @RequestBody ReprogramarCitaRequest solicitud) {
+        return citaService.reprogramar(id, solicitud);
     }
 
     @GetMapping("/{id}")

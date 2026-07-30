@@ -11,20 +11,17 @@ import com.medisalud.agenda.repository.CitaRepository;
 import com.medisalud.agenda.repository.MedicoRepository;
 import com.medisalud.agenda.repository.PacienteRepository;
 import com.medisalud.agenda.repository.PenalizacionPacienteRepository;
+import com.medisalud.agenda.support.ConfiguracionDeRelojDePruebas;
 import com.medisalud.agenda.support.RelojAjustable;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -41,20 +38,11 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(ConfiguracionDeRelojDePruebas.class)
 @ActiveProfiles("test")
 class CancelacionYPenalizacionTest {
 
-    private static final LocalDateTime LUNES_08_00 = LocalDateTime.of(2026, 8, 3, 8, 0);
-
-    @TestConfiguration
-    static class RelojDePruebas {
-
-        @Bean
-        @Primary
-        RelojAjustable relojAjustable() {
-            return new RelojAjustable(LUNES_08_00, ZoneOffset.UTC);
-        }
-    }
+    private static final LocalDateTime LUNES_08_00 = ConfiguracionDeRelojDePruebas.MOMENTO_INICIAL;
 
     @Autowired private MockMvc mockMvc;
     @Autowired private RelojAjustable reloj;
@@ -93,9 +81,9 @@ class CancelacionYPenalizacionTest {
         mockMvc.perform(patch("/api/citas/{id}/cancelar", citaId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cita.estado").value("CANCELADA"))
-                .andExpect(jsonPath("$.penalizacionRegistrada").value(false))
-                .andExpect(jsonPath("$.penalizacionesVigentes").value(0))
-                .andExpect(jsonPath("$.pacienteBloqueado").value(false));
+                .andExpect(jsonPath("$.penalizacion.registrada").value(false))
+                .andExpect(jsonPath("$.penalizacion.totalVigentes").value(0))
+                .andExpect(jsonPath("$.penalizacion.pacienteBloqueado").value(false));
 
         assertThat(penalizacionRepository.count()).isZero();
 
@@ -111,7 +99,7 @@ class CancelacionYPenalizacionTest {
 
         mockMvc.perform(patch("/api/citas/{id}/cancelar", citaId))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.codigo").value("CITA_NO_CANCELABLE"));
+                .andExpect(jsonPath("$.codigo").value("CITA_NO_MODIFICABLE"));
     }
 
     @Test
@@ -130,10 +118,10 @@ class CancelacionYPenalizacionTest {
         // --- La tercera cierra la puerta -------------------------------------------
         String respuesta = cancelarTardeUnaCitaEl(LUNES_08_00.plusDays(2));
 
-        assertThat(JsonPath.<Boolean>read(respuesta, "$.pacienteBloqueado")).isTrue();
-        assertThat(JsonPath.<Integer>read(respuesta, "$.penalizacionesVigentes")).isEqualTo(3);
+        assertThat(JsonPath.<Boolean>read(respuesta, "$.penalizacion.pacienteBloqueado")).isTrue();
+        assertThat(JsonPath.<Integer>read(respuesta, "$.penalizacion.totalVigentes")).isEqualTo(3);
         // La primera penalización se registró el 03/08 a las 09:30; expira 30 días después.
-        assertThat(JsonPath.<String>read(respuesta, "$.puedeAgendarDesde"))
+        assertThat(JsonPath.<String>read(respuesta, "$.penalizacion.puedeAgendarDesde"))
                 .isEqualTo("2026-09-02T09:30:00");
 
         // --- Bloqueado: no puede agendar, y se le dice hasta cuándo ----------------
@@ -175,8 +163,8 @@ class CancelacionYPenalizacionTest {
 
         mockMvc.perform(patch("/api/citas/{id}/cancelar", citaId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.penalizacionRegistrada").value(true))
-                .andExpect(jsonPath("$.motivoPenalizacion")
+                .andExpect(jsonPath("$.penalizacion.registrada").value(true))
+                .andExpect(jsonPath("$.penalizacion.motivo")
                         .value("Cancelación posterior a la hora de la cita."));
     }
 
@@ -193,8 +181,8 @@ class CancelacionYPenalizacionTest {
         reloj.situarEn(dia.withHour(9).withMinute(30));
         return mockMvc.perform(patch("/api/citas/{id}/cancelar", citaId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.penalizacionRegistrada").value(true))
-                .andExpect(jsonPath("$.motivoPenalizacion")
+                .andExpect(jsonPath("$.penalizacion.registrada").value(true))
+                .andExpect(jsonPath("$.penalizacion.motivo")
                         .value("Cancelación con 30 min de antelación."))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
     }

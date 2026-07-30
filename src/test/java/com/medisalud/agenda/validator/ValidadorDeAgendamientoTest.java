@@ -73,7 +73,7 @@ class ValidadorDeAgendamientoTest {
         sinBloqueo();
         agendasLibres();
 
-        assertThatCode(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
+        assertThatCode(() -> validador.validarReserva(unMedico(), unPaciente(null), FRANJA_VALIDA))
                 .doesNotThrowAnyException();
     }
 
@@ -84,7 +84,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("Una hora desalineada se rechaza con 400 y sin consultar la base de datos")
         void horaDesalineada() {
-            assertThat(codigoDe(() -> validador.validar(
+            assertThat(codigoDe(() -> validador.validarReserva(
                     unMedico(), unPaciente(null), LUNES.atTime(8, 15))))
                     .isEqualTo(CodigoError.FRANJA_NO_VALIDA);
 
@@ -94,7 +94,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("El domingo no hay atención")
         void domingo() {
-            assertThat(codigoDe(() -> validador.validar(
+            assertThat(codigoDe(() -> validador.validarReserva(
                     unMedico(), unPaciente(null), DOMINGO.atTime(10, 0))))
                     .isEqualTo(CodigoError.FUERA_DE_HORARIO_LABORAL);
         }
@@ -102,7 +102,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("Después del cierre de un día de semana no hay atención")
         void despuesDelCierre() {
-            assertThat(codigoDe(() -> validador.validar(
+            assertThat(codigoDe(() -> validador.validarReserva(
                     unMedico(), unPaciente(null), LUNES.atTime(19, 0))))
                     .isEqualTo(CodigoError.FUERA_DE_HORARIO_LABORAL);
         }
@@ -110,7 +110,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("El sábado por la tarde no hay atención, aunque sea día hábil")
         void sabadoPorLaTarde() {
-            assertThat(codigoDe(() -> validador.validar(
+            assertThat(codigoDe(() -> validador.validarReserva(
                     unMedico(), unPaciente(null), SABADO.atTime(15, 0))))
                     .isEqualTo(CodigoError.FUERA_DE_HORARIO_LABORAL);
         }
@@ -121,7 +121,7 @@ class ValidadorDeAgendamientoTest {
             sinBloqueo();
             agendasLibres();
 
-            assertThatCode(() -> validador.validar(
+            assertThatCode(() -> validador.validarReserva(
                     unMedico(), unPaciente(null), SABADO.atTime(9, 0)))
                     .doesNotThrowAnyException();
         }
@@ -131,7 +131,7 @@ class ValidadorDeAgendamientoTest {
         void festivo() {
             var conFestivo = crearValidador(new CalendarioLaboral(fecha -> fecha.equals(LUNES)));
 
-            assertThat(codigoDe(() -> conFestivo.validar(
+            assertThat(codigoDe(() -> conFestivo.validarReserva(
                     unMedico(), unPaciente(null), FRANJA_VALIDA)))
                     .isEqualTo(CodigoError.FUERA_DE_HORARIO_LABORAL);
         }
@@ -144,7 +144,7 @@ class ValidadorDeAgendamientoTest {
         @Test
         @DisplayName("Una franja ya pasada se rechaza antes que cualquier otra regla")
         void franjaPasada() {
-            assertThat(codigoDe(() -> validador.validar(
+            assertThat(codigoDe(() -> validador.validarReserva(
                     unMedico(), unPaciente(null), VIERNES_ANTERIOR.atTime(9, 0))))
                     .isEqualTo(CodigoError.FECHA_EN_EL_PASADO);
 
@@ -162,7 +162,7 @@ class ValidadorDeAgendamientoTest {
             sinBloqueo();
             agendasLibres();
 
-            assertThatCode(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
+            assertThatCode(() -> validador.validarReserva(unMedico(), unPaciente(null), FRANJA_VALIDA))
                     .doesNotThrowAnyException();
         }
 
@@ -171,7 +171,7 @@ class ValidadorDeAgendamientoTest {
         void fechaDeNacimientoFutura() {
             Paciente paciente = unPaciente(LocalDate.of(2027, 1, 1));
 
-            assertThat(codigoDe(() -> validador.validar(unMedico(), paciente, FRANJA_VALIDA)))
+            assertThat(codigoDe(() -> validador.validarReserva(unMedico(), paciente, FRANJA_VALIDA)))
                     .isEqualTo(CodigoError.FECHA_NACIMIENTO_INVALIDA);
         }
 
@@ -181,7 +181,7 @@ class ValidadorDeAgendamientoTest {
             sinBloqueo();
             agendasLibres();
 
-            assertThatCode(() -> validador.validar(unMedico(), unPaciente(LUNES), FRANJA_VALIDA))
+            assertThatCode(() -> validador.validarReserva(unMedico(), unPaciente(LUNES), FRANJA_VALIDA))
                     .doesNotThrowAnyException();
         }
     }
@@ -199,7 +199,7 @@ class ValidadorDeAgendamientoTest {
             given(politicaDePenalizaciones.describirBloqueo(bloqueo))
                     .willReturn("No puede agendar hasta el 15/08/2026 a las 14:30.");
 
-            assertThatThrownBy(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
+            assertThatThrownBy(() -> validador.validarReserva(unMedico(), unPaciente(null), FRANJA_VALIDA))
                     .isInstanceOf(ConflictoDeNegocioException.class)
                     .hasMessage("No puede agendar hasta el 15/08/2026 a las 14:30.")
                     .extracting(ex -> ((ExcepcionDeDominio) ex).getCodigo())
@@ -214,7 +214,7 @@ class ValidadorDeAgendamientoTest {
             given(politicaDePenalizaciones.evaluarBloqueo(2L)).willReturn(bloqueo);
             given(politicaDePenalizaciones.describirBloqueo(bloqueo)).willReturn("bloqueado");
 
-            assertThat(codigoDe(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA)))
+            assertThat(codigoDe(() -> validador.validarReserva(unMedico(), unPaciente(null), FRANJA_VALIDA)))
                     .isEqualTo(CodigoError.PACIENTE_BLOQUEADO);
 
             // Al paciente bloqueado no le sirve saber que además la franja estaba ocupada.
@@ -228,8 +228,45 @@ class ValidadorDeAgendamientoTest {
                     .willReturn(EstadoDeBloqueo.sinBloqueo(2));
             agendasLibres();
 
-            assertThatCode(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
+            assertThatCode(() -> validador.validarReserva(unMedico(), unPaciente(null), FRANJA_VALIDA))
                     .doesNotThrowAnyException();
+        }
+    }
+
+    @Nested
+    @DisplayName("RN-06: la reprogramación se valida distinto")
+    class Reprogramacion {
+
+        @Test
+        @DisplayName("Un paciente bloqueado sí puede reprogramar una cita que ya tenía")
+        void bloqueadoPuedeReprogramar() {
+            agendasLibres();
+
+            assertThatCode(() -> validador.validarReprogramacion(
+                    unMedico(), unPaciente(null), FRANJA_VALIDA))
+                    .doesNotThrowAnyException();
+
+            // Ni siquiera se consulta el bloqueo: la RN-05 no aplica al reprogramar.
+            verifyNoInteractions(politicaDePenalizaciones);
+        }
+
+        @Test
+        @DisplayName("El resto de reglas sí se siguen aplicando al reprogramar")
+        void mantieneLasDemasReglas() {
+            assertThat(codigoDe(() -> validador.validarReprogramacion(
+                    unMedico(), unPaciente(null), DOMINGO.atTime(10, 0))))
+                    .isEqualTo(CodigoError.FUERA_DE_HORARIO_LABORAL);
+        }
+
+        @Test
+        @DisplayName("RN-02 sigue vigente al reprogramar")
+        void respetaLaAgendaDelMedico() {
+            given(citaRepository.existsByMedicoIdAndFechaHoraAndEstado(
+                    eq(1L), eq(FRANJA_VALIDA), eq(EstadoCita.PROGRAMADA))).willReturn(true);
+
+            assertThat(codigoDe(() -> validador.validarReprogramacion(
+                    unMedico(), unPaciente(null), FRANJA_VALIDA)))
+                    .isEqualTo(CodigoError.MEDICO_NO_DISPONIBLE);
         }
     }
 
@@ -244,7 +281,7 @@ class ValidadorDeAgendamientoTest {
             given(citaRepository.existsByMedicoIdAndFechaHoraAndEstado(
                     eq(1L), eq(FRANJA_VALIDA), eq(EstadoCita.PROGRAMADA))).willReturn(true);
 
-            assertThatThrownBy(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
+            assertThatThrownBy(() -> validador.validarReserva(unMedico(), unPaciente(null), FRANJA_VALIDA))
                     .isInstanceOf(ConflictoDeNegocioException.class)
                     .extracting(ex -> ((ExcepcionDeDominio) ex).getCodigo())
                     .isEqualTo(CodigoError.MEDICO_NO_DISPONIBLE);
@@ -259,7 +296,7 @@ class ValidadorDeAgendamientoTest {
             given(citaRepository.existsByPacienteIdAndFechaHoraAndEstado(
                     eq(2L), eq(FRANJA_VALIDA), eq(EstadoCita.PROGRAMADA))).willReturn(true);
 
-            assertThatThrownBy(() -> validador.validar(unMedico(), unPaciente(null), FRANJA_VALIDA))
+            assertThatThrownBy(() -> validador.validarReserva(unMedico(), unPaciente(null), FRANJA_VALIDA))
                     .isInstanceOf(ConflictoDeNegocioException.class)
                     .extracting(ex -> ((ExcepcionDeDominio) ex).getCodigo())
                     .isEqualTo(CodigoError.PACIENTE_NO_DISPONIBLE);

@@ -49,10 +49,13 @@ import lombok.experimental.SuperBuilder;
  * devolver un 409 con un mensaje util; la restriccion es la red de seguridad que cubre la
  * ventana de carrera que esa comprobacion no puede cerrar.</p>
  *
- * <p><b>Nota para la reprogramacion (RN-06):</b> Hibernate ordena los INSERT antes que los
- * UPDATE dentro de un mismo flush. Si una reprogramacion cancela la cita original y crea
- * la nueva sobre la misma franja, hay que forzar un {@code flush()} tras la cancelacion
- * para que el UPDATE que libera la franja se ejecute antes del INSERT que la reclama.</p>
+ * <p><b>Nota sobre el orden del flush:</b> Hibernate ejecuta los INSERT antes que los UPDATE
+ * dentro de un mismo flush. Una reprogramacion que cancelase la cita original y creara la
+ * nueva <i>sobre la misma franja</i> chocaria con estas restricciones, porque el INSERT que
+ * reclama el horario saldria antes que el UPDATE que lo libera, y haria falta un
+ * {@code flush()} explicito entre ambos. El servicio evita esa situacion de raiz:
+ * reprogramar a la fecha y hora que la cita ya tenia se rechaza antes de tocar nada, asi que
+ * la cita nueva y la anterior nunca compiten por la misma franja.</p>
  *
  * <p>No se declaran indices adicionales sobre {@code (medico_id, fecha_hora)} ni
  * {@code (paciente_id, fecha_hora)}: las restricciones unicas ya crean indices con esas

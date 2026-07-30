@@ -1,6 +1,7 @@
 package com.medisalud.agenda.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -17,6 +18,8 @@ import com.medisalud.agenda.dto.CancelacionResponse;
 import com.medisalud.agenda.dto.CitaResponse;
 import com.medisalud.agenda.dto.MedicoResumen;
 import com.medisalud.agenda.dto.PacienteResumen;
+import com.medisalud.agenda.dto.ReprogramacionResponse;
+import com.medisalud.agenda.dto.ResumenDePenalizacion;
 import com.medisalud.agenda.exception.CodigoError;
 import com.medisalud.agenda.exception.ConflictoDeNegocioException;
 import com.medisalud.agenda.exception.ManejadorGlobalDeErrores;
@@ -183,51 +186,47 @@ class CitaControllerTest {
         @DisplayName("Cancelar a tiempo devuelve 200 sin penalización")
         void cancelaSinPenalizacion() throws Exception {
             given(citaService.cancelar(10L)).willReturn(new CancelacionResponse(
-                    unaCitaCancelada(), false, null, 0, false, null));
+                    unaCitaCancelada(), sinPenalizacion()));
 
             mockMvc.perform(patch("/api/citas/10/cancelar"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.cita.estado").value("CANCELADA"))
                     .andExpect(jsonPath("$.cita.fechaCancelacion").value("2026-08-03T06:00:00"))
-                    .andExpect(jsonPath("$.penalizacionRegistrada").value(false))
-                    .andExpect(jsonPath("$.penalizacionesVigentes").value(0))
-                    .andExpect(jsonPath("$.pacienteBloqueado").value(false))
+                    .andExpect(jsonPath("$.penalizacion.registrada").value(false))
+                    .andExpect(jsonPath("$.penalizacion.totalVigentes").value(0))
+                    .andExpect(jsonPath("$.penalizacion.pacienteBloqueado").value(false))
                     // los campos que no aplican desaparecen del JSON
-                    .andExpect(jsonPath("$.motivoPenalizacion").doesNotExist())
-                    .andExpect(jsonPath("$.puedeAgendarDesde").doesNotExist());
+                    .andExpect(jsonPath("$.penalizacion.motivo").doesNotExist())
+                    .andExpect(jsonPath("$.penalizacion.puedeAgendarDesde").doesNotExist());
         }
 
         @Test
         @DisplayName("Cancelar tarde avisa de la penalización y del bloqueo resultante")
         void cancelaConPenalizacionYBloqueo() throws Exception {
             given(citaService.cancelar(10L)).willReturn(new CancelacionResponse(
-                    unaCitaCancelada(),
-                    true,
-                    "Cancelación con 45 min de antelación.",
-                    3,
-                    true,
-                    LocalDateTime.of(2026, 8, 15, 14, 30)));
+                    unaCitaCancelada(), conPenalizacionYBloqueo()));
 
             mockMvc.perform(patch("/api/citas/10/cancelar"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.penalizacionRegistrada").value(true))
-                    .andExpect(jsonPath("$.motivoPenalizacion")
+                    .andExpect(jsonPath("$.penalizacion.registrada").value(true))
+                    .andExpect(jsonPath("$.penalizacion.motivo")
                             .value("Cancelación con 45 min de antelación."))
-                    .andExpect(jsonPath("$.penalizacionesVigentes").value(3))
-                    .andExpect(jsonPath("$.pacienteBloqueado").value(true))
-                    .andExpect(jsonPath("$.puedeAgendarDesde").value("2026-08-15T14:30:00"));
+                    .andExpect(jsonPath("$.penalizacion.totalVigentes").value(3))
+                    .andExpect(jsonPath("$.penalizacion.pacienteBloqueado").value(true))
+                    .andExpect(jsonPath("$.penalizacion.puedeAgendarDesde")
+                            .value("2026-08-15T14:30:00"));
         }
 
         @Test
         @DisplayName("Cancelar una cita ya cancelada devuelve 409")
         void citaYaCancelada() throws Exception {
-            willThrow(new ConflictoDeNegocioException(CodigoError.CITA_NO_CANCELABLE,
+            willThrow(new ConflictoDeNegocioException(CodigoError.CITA_NO_MODIFICABLE,
                     "Solo se pueden cancelar citas programadas; esta cita ya está cancelada."))
                     .given(citaService).cancelar(10L);
 
             mockMvc.perform(patch("/api/citas/10/cancelar"))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.codigo").value("CITA_NO_CANCELABLE"));
+                    .andExpect(jsonPath("$.codigo").value("CITA_NO_MODIFICABLE"));
         }
 
         @Test
@@ -237,6 +236,109 @@ class CitaControllerTest {
                     .given(citaService).cancelar(99L);
 
             mockMvc.perform(patch("/api/citas/99/cancelar"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.codigo").value("RECURSO_NO_ENCONTRADO"));
+        }
+    }
+
+    @Nested
+    @DisplayName("PATCH /api/citas/{id}/reprogramar")
+    class Reprogramacion {
+
+        private static final String NUEVO_HORARIO = """
+                {"nuevaFechaHora": "2026-08-03T11:00:00"}""";
+
+        @Test
+        @DisplayName("Devuelve las dos citas y el enlace de trazabilidad entre ellas")
+        void reprograma() throws Exception {
+            CitaResponse nueva = new CitaResponse(
+                    11L,
+                    new MedicoResumen(1L, "Dra. María González", "Cardiología"),
+                    new PacienteResumen(2L, "Juan Pérez", "1020304050"),
+                    LocalDateTime.of(2026, 8, 3, 11, 0),
+                    EstadoCita.PROGRAMADA,
+                    null,
+                    10L);
+            given(citaService.reprogramar(eq(10L), any())).willReturn(
+                    new ReprogramacionResponse(unaCitaCancelada(), nueva, sinPenalizacion()));
+
+            mockMvc.perform(patch("/api/citas/10/reprogramar")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(NUEVO_HORARIO))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.citaAnterior.id").value(10))
+                    .andExpect(jsonPath("$.citaAnterior.estado").value("CANCELADA"))
+                    .andExpect(jsonPath("$.citaNueva.id").value(11))
+                    .andExpect(jsonPath("$.citaNueva.estado").value("PROGRAMADA"))
+                    .andExpect(jsonPath("$.citaNueva.fechaHora").value("2026-08-03T11:00:00"))
+                    .andExpect(jsonPath("$.citaNueva.citaOrigenId").value(10))
+                    .andExpect(jsonPath("$.penalizacion.registrada").value(false));
+        }
+
+        @Test
+        @DisplayName("Reprogramar tarde también penaliza")
+        void reprogramarTardePenaliza() throws Exception {
+            given(citaService.reprogramar(eq(10L), any())).willReturn(new ReprogramacionResponse(
+                    unaCitaCancelada(), unaCitaProgramada(), conPenalizacionYBloqueo()));
+
+            mockMvc.perform(patch("/api/citas/10/reprogramar")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(NUEVO_HORARIO))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.penalizacion.registrada").value(true))
+                    .andExpect(jsonPath("$.penalizacion.totalVigentes").value(3));
+        }
+
+        @Test
+        @DisplayName("Falta la nueva fecha: 400 con detalle de campo")
+        void faltaLaNuevaFecha() throws Exception {
+            mockMvc.perform(patch("/api/citas/10/reprogramar")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.codigo").value("VALIDACION_FALLIDA"))
+                    .andExpect(jsonPath("$.detalles[0].campo").value("nuevaFechaHora"));
+
+            verifyNoInteractions(citaService);
+        }
+
+        @Test
+        @DisplayName("Reprogramar al mismo horario devuelve 400 con su propio mensaje")
+        void mismoHorario() throws Exception {
+            willThrow(new SolicitudInvalidaException(CodigoError.REPROGRAMACION_SIN_CAMBIO,
+                    "La cita ya está programada para esa fecha y hora."))
+                    .given(citaService).reprogramar(eq(10L), any());
+
+            mockMvc.perform(patch("/api/citas/10/reprogramar")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(NUEVO_HORARIO))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.codigo").value("REPROGRAMACION_SIN_CAMBIO"));
+        }
+
+        @Test
+        @DisplayName("El nuevo horario ocupado devuelve 409")
+        void nuevoHorarioOcupado() throws Exception {
+            willThrow(new ConflictoDeNegocioException(CodigoError.MEDICO_NO_DISPONIBLE,
+                    "El médico ya tiene una cita programada en esa franja."))
+                    .given(citaService).reprogramar(eq(10L), any());
+
+            mockMvc.perform(patch("/api/citas/10/reprogramar")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(NUEVO_HORARIO))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.codigo").value("MEDICO_NO_DISPONIBLE"));
+        }
+
+        @Test
+        @DisplayName("Reprogramar una cita inexistente devuelve 404")
+        void citaInexistente() throws Exception {
+            willThrow(new RecursoNoEncontradoException("la cita", 99L))
+                    .given(citaService).reprogramar(eq(99L), any());
+
+            mockMvc.perform(patch("/api/citas/99/reprogramar")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(NUEVO_HORARIO))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.codigo").value("RECURSO_NO_ENCONTRADO"));
         }
@@ -262,6 +364,19 @@ class CitaControllerTest {
                 EstadoCita.PROGRAMADA,
                 null,
                 null);
+    }
+
+    private static ResumenDePenalizacion sinPenalizacion() {
+        return new ResumenDePenalizacion(false, null, 0, false, null);
+    }
+
+    private static ResumenDePenalizacion conPenalizacionYBloqueo() {
+        return new ResumenDePenalizacion(
+                true,
+                "Cancelación con 45 min de antelación.",
+                3,
+                true,
+                LocalDateTime.of(2026, 8, 15, 14, 30));
     }
 
     private static CitaResponse unaCitaCancelada() {

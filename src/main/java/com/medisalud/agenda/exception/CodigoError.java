@@ -47,6 +47,9 @@ public enum CodigoError {
     /** El rango de fechas consultado esta invertido o excede el maximo permitido. */
     RANGO_DE_FECHAS_INVALIDO,
 
+    /** RN-06: se pidio reprogramar una cita a la fecha y hora que ya tenia. */
+    REPROGRAMACION_SIN_CAMBIO,
+
     // ----------------------------------------------------------------- 404
 
     /** El recurso solicitado no existe. */
@@ -70,7 +73,7 @@ public enum CodigoError {
     PACIENTE_BLOQUEADO,
 
     /** Solo se pueden cancelar o reprogramar citas en estado PROGRAMADA. */
-    CITA_NO_CANCELABLE,
+    CITA_NO_MODIFICABLE,
 
     /** La operacion viola una restriccion de integridad del modelo. */
     CONFLICTO_DE_INTEGRIDAD,

@@ -9,9 +9,12 @@ import com.medisalud.agenda.domain.PenalizacionPaciente;
 import com.medisalud.agenda.dto.CancelacionResponse;
 import com.medisalud.agenda.dto.CitaResponse;
 import com.medisalud.agenda.dto.CrearCitaRequest;
+import com.medisalud.agenda.dto.ReprogramacionResponse;
+import com.medisalud.agenda.dto.ReprogramarCitaRequest;
 import com.medisalud.agenda.exception.CodigoError;
 import com.medisalud.agenda.exception.ConflictoDeNegocioException;
 import com.medisalud.agenda.exception.RecursoNoEncontradoException;
+import com.medisalud.agenda.exception.SolicitudInvalidaException;
 import com.medisalud.agenda.repository.CitaRepository;
 import com.medisalud.agenda.validator.ValidadorDeAgendamiento;
 import java.time.Clock;
@@ -62,7 +65,7 @@ public class CitaService {
         Medico medico = medicoService.buscarEntidad(solicitud.medicoId());
         Paciente paciente = pacienteService.buscarEntidad(solicitud.pacienteId());
 
-        validador.validar(medico, paciente, solicitud.fechaHora());
+        validador.validarReserva(medico, paciente, solicitud.fechaHora());
 
         Cita cita = Cita.builder()
                 .medico(medico)
@@ -98,11 +101,7 @@ public class CitaService {
     public CancelacionResponse cancelar(Long id) {
         Cita cita = buscarEntidad(id);
 
-        if (!cita.estaProgramada()) {
-            throw new ConflictoDeNegocioException(CodigoError.CITA_NO_CANCELABLE,
-                    "Solo se pueden cancelar citas programadas; esta cita ya está %s."
-                            .formatted(cita.getEstado().name().toLowerCase(Locale.ROOT)));
-        }
+        exigirQueEsteProgramada(cita, "cancelar");
 
         LocalDateTime momentoCancelacion = LocalDateTime.now(clock);
         cita.cancelar(momentoCancelacion);
@@ -113,6 +112,80 @@ public class CitaService {
                 politicaDePenalizaciones.evaluarBloqueo(cita.getPaciente().getId());
 
         return CancelacionResponse.de(cita, penalizacion, bloqueo);
+    }
+
+    /**
+     * Reprograma una cita: cancela la original y crea una nueva en el horario pedido (RN-06).
+     *
+     * <p><b>Todo o nada.</b> El metodo es transaccional, asi que si el nuevo horario no esta
+     * disponible la cancelacion de la original se deshace con el resto y el paciente
+     * conserva su cita. Nunca queda una cita cancelada sin sustituta.</p>
+     *
+     * <p><b>Por que se valida antes de cancelar.</b> Aunque la transaccion ya garantiza la
+     * atomicidad, el orden importa por dos motivos concretos:</p>
+     * <ol>
+     *   <li>Si se cancelara primero, la penalizacion que puede generar <i>esta misma</i>
+     *       reprogramacion contaria en la evaluacion del bloqueo, y una tercera cancelacion
+     *       tardia podria impedir la operacion que acababa de generarla. La reprogramacion
+     *       fallaria por una penalizacion que, al deshacerse la transaccion, tampoco
+     *       quedaria registrada. Validando antes, el bloqueo se mide con el historial previo
+     *       y la penalizacion afecta a las citas futuras, que es lo razonable.</li>
+     *   <li>La cita original sigue ocupando su franja durante la validacion, asi que
+     *       reprogramar al mismo horario chocaria consigo misma y devolveria un "el medico ya
+     *       tiene una cita en esa franja" enganoso, porque esa cita es la suya. Por eso ese
+     *       caso se descarta explicitamente antes, con su propio mensaje.</li>
+     * </ol>
+     *
+     * <p>Descartado el mismo horario, la cita nueva y la original nunca compiten por la misma
+     * franja, de modo que el INSERT de la nueva y el UPDATE que libera la anterior pueden
+     * salir en cualquier orden dentro del flush sin violar las restricciones de unicidad.</p>
+     */
+    @Transactional
+    public ReprogramacionResponse reprogramar(Long id, ReprogramarCitaRequest solicitud) {
+        Cita original = buscarEntidad(id);
+        exigirQueEsteProgramada(original, "reprogramar");
+
+        LocalDateTime nuevaFechaHora = solicitud.nuevaFechaHora();
+        if (nuevaFechaHora.equals(original.getFechaHora())) {
+            throw new SolicitudInvalidaException(CodigoError.REPROGRAMACION_SIN_CAMBIO,
+                    "La cita ya está programada para esa fecha y hora.");
+        }
+
+        Medico medico = original.getMedico();
+        Paciente paciente = original.getPaciente();
+        validador.validarReprogramacion(medico, paciente, nuevaFechaHora);
+
+        LocalDateTime ahora = LocalDateTime.now(clock);
+        original.cancelar(ahora);
+        Optional<PenalizacionPaciente> penalizacion =
+                politicaDePenalizaciones.registrarSiLaCancelacionEsTardia(original, ahora);
+
+        Cita nueva = Cita.builder()
+                .medico(medico)
+                .paciente(paciente)
+                .fechaHora(nuevaFechaHora)
+                .estado(EstadoCita.PROGRAMADA)
+                .citaOrigenId(original.getId())
+                .build();
+
+        try {
+            citaRepository.saveAndFlush(nueva);
+        } catch (DataIntegrityViolationException colision) {
+            throw new ConflictoDeNegocioException(CodigoError.FRANJA_OCUPADA,
+                    "La franja acaba de ser ocupada por otra reserva. Elija otro horario.");
+        }
+
+        EstadoDeBloqueo bloqueo = politicaDePenalizaciones.evaluarBloqueo(paciente.getId());
+
+        return ReprogramacionResponse.de(original, nueva, penalizacion, bloqueo);
+    }
+
+    private void exigirQueEsteProgramada(Cita cita, String operacion) {
+        if (!cita.estaProgramada()) {
+            throw new ConflictoDeNegocioException(CodigoError.CITA_NO_MODIFICABLE,
+                    "Solo se pueden %s citas programadas; esta cita ya está %s."
+                            .formatted(operacion, cita.getEstado().name().toLowerCase(Locale.ROOT)));
+        }
     }
 
     public CitaResponse obtenerPorId(Long id) {
