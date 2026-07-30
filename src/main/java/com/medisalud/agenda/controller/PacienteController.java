@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.net.URI;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -18,7 +17,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
  * Endpoints REST de pacientes.
@@ -42,11 +40,7 @@ public class PacienteController {
     })
     public ResponseEntity<PacienteResponse> crear(@Valid @RequestBody CrearPacienteRequest solicitud) {
         PacienteResponse creado = pacienteService.crear(solicitud);
-        URI ubicacion = ServletUriComponentsBuilder.fromCurrentRequestUri()
-                .path("/{id}")
-                .buildAndExpand(creado.id())
-                .toUri();
-        return ResponseEntity.created(ubicacion).body(creado);
+        return ResponseEntity.created(Ubicaciones.delRecursoCreado(creado.id())).body(creado);
     }
 
     @GetMapping

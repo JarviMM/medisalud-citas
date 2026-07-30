@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# Perfil docker: la aplicación ejecutándose dentro de un contenedor.
+#
+# NO es un perfil de producción: sigue usando H2 en memoria, que es la decisión
+# de alcance del MVP. Lo que hace es retirar todo el instrumental de desarrollo
+# que no debe salir de la máquina del desarrollador.
+#
+# El perfil dev deja abierta la consola H2 en /h2-console, que permite ejecutar
+# SQL arbitrario sin credenciales. En local es cómodo; en un contenedor
+# publicado sería una puerta abierta a la base de datos, así que el contenedor
+# nunca debe arrancar con dev.
+# ---------------------------------------------------------------------------
+spring:
+  datasource:
+    url: jdbc:h2:mem:medisalud;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    # Credenciales por variable de entorno, nunca fijadas en el fichero.
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    # Sin volcado de SQL: los logs de un contenedor van a un agregador y no
+    # deben arrastrar los valores de cada sentencia.
+    show-sql: false
+
+  h2:
+    console:
+      enabled: false
+
+logging:
+  level:
+    root: INFO
+    com.medisalud.agenda: INFO
+    org.hibernate.SQL: WARN
+
+# Swagger UI se deja accesible a propósito: en este MVP la documentación viva es
+# parte del entregable. En un despliegue real de cara al público se apagaría con
+# springdoc.api-docs.enabled=false y springdoc.swagger-ui.enabled=false.

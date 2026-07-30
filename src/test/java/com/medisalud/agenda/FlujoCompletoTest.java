@@ -16,6 +16,7 @@ import com.medisalud.agenda.repository.PenalizacionPacienteRepository;
 import com.medisalud.agenda.support.ConfiguracionDeRelojDePruebas;
 import com.medisalud.agenda.support.RelojAjustable;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
@@ -197,6 +198,56 @@ class FlujoCompletoTest {
         mockMvc.perform(get("/api/medicos/{id}/disponibilidad", cardiologa)
                         .param("fechaInicio", LUNES).param("fechaFin", LUNES))
                 .andExpect(jsonPath("$.dias[0].franjas", Matchers.hasItem("15:00:00")));
+    }
+
+    /**
+     * El enunciado fija en "Datos de Referencia" que un dia laboral tiene 20 franjas
+     * (la 20 es 17:30-18:00) y el sabado 10 (hasta las 13:00). Los bordes de esa tabla son
+     * el sitio mas probable de un error por uno: se comprueban contra el agendamiento real,
+     * no solo contra el calculo del calendario.
+     */
+    @Test
+    @DisplayName("Los bordes de la tabla de franjas del enunciado: última del día y primera fuera")
+    void bordesDeLasFranjasDelEnunciado() throws Exception {
+        long medico = crear("/api/medicos", """
+                {"nombreCompleto":"Dra. María González","especialidad":"Cardiología"}""");
+        long paciente = crear("/api/pacientes", """
+                {"nombreCompleto":"Juan Pérez","documentoIdentidad":"1020304050",
+                 "telefono":"3001234567","email":"juan.perez@example.com"}""");
+
+        LocalDate sabado = LocalDate.of(2026, 8, 8);
+        LocalDate lunes = LUNES_07_00.toLocalDate();
+
+        // Franja 10 del sábado: 12:30-13:00. Es la última y debe poder reservarse.
+        mockMvc.perform(post("/api/citas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpoDeCita(medico, paciente, sabado.atTime(12, 30))))
+                .andExpect(status().isCreated());
+
+        // Las 13:00 del sábado son ya el cierre: no hay franja 11.
+        mockMvc.perform(post("/api/citas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpoDeCita(medico, paciente, sabado.atTime(13, 0))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("FUERA_DE_HORARIO_LABORAL"));
+
+        // Franja 20 de un día de semana: 17:30-18:00.
+        mockMvc.perform(post("/api/citas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpoDeCita(medico, paciente, lunes.atTime(17, 30))))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/citas")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cuerpoDeCita(medico, paciente, lunes.atTime(18, 0))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.codigo").value("FUERA_DE_HORARIO_LABORAL"));
+
+        // Y el recuento coincide con la tabla del enunciado: 20 entre semana, 10 el sábado.
+        mockMvc.perform(get("/api/medicos/{id}/disponibilidad", medico)
+                        .param("fechaInicio", sabado.toString())
+                        .param("fechaFin", sabado.toString()))
+                .andExpect(jsonPath("$.dias[0].franjas.length()").value(9)); // 10 menos la reservada
     }
 
     // ------------------------------------------------------------------ apoyo

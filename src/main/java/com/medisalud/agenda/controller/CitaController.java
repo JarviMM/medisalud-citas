@@ -14,7 +14,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.net.URI;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +27,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
  * Endpoints REST de citas.
@@ -58,11 +56,7 @@ public class CitaController {
     })
     public ResponseEntity<CitaResponse> reservar(@Valid @RequestBody CrearCitaRequest solicitud) {
         CitaResponse creada = citaService.reservar(solicitud);
-        URI ubicacion = ServletUriComponentsBuilder.fromCurrentRequestUri()
-                .path("/{id}")
-                .buildAndExpand(creada.id())
-                .toUri();
-        return ResponseEntity.created(ubicacion).body(creada);
+        return ResponseEntity.created(Ubicaciones.delRecursoCreado(creada.id())).body(creada);
     }
 
     @GetMapping

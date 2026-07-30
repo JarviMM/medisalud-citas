@@ -42,6 +42,10 @@ EXPOSE 8080
 # MaxRAMPercentage en lugar de un -Xmx fijo: la JVM se ajusta al límite de
 # memoria que le imponga el orquestador sin tener que reconstruir la imagen.
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0"
-ENV SPRING_PROFILES_ACTIVE=dev
+
+# Perfil `docker`, nunca `dev`. El perfil dev deja abierta la consola H2 en
+# /h2-console, que ejecuta SQL arbitrario sin credenciales: cómodo en local,
+# una puerta abierta a la base de datos en un contenedor publicado.
+ENV SPRING_PROFILES_ACTIVE=docker
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /aplicacion/aplicacion.jar"]

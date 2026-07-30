@@ -28,18 +28,27 @@ levantarlo con un solo comando y sin instalar nada más.
 | | |
 |---|---|
 | JDK | 21 o superior |
-| Maven | 3.9 o superior |
+| Maven | **no hace falta** — el proyecto incluye el wrapper |
 
-No hace falta instalar base de datos: la aplicación arranca con H2 en memoria.
+Tampoco hace falta instalar base de datos: la aplicación arranca con H2 en memoria.
 
 ### Arrancar
 
 ```bash
-mvn spring-boot:run
+./mvnw spring-boot:run          # Linux y macOS
+mvnw.cmd spring-boot:run        # Windows
 ```
 
-Eso es todo. El perfil `dev` está activo por defecto (`spring.profiles.default` en
-`application.yml`), así que no hay que pasar ningún parámetro.
+Eso es todo. El wrapper descarga Maven la primera vez, y el perfil `dev` está activo por
+defecto (`spring.profiles.default` en `application.yml`), así que no hay que pasar ningún
+parámetro. Si prefieres tu propio Maven (3.9+), `mvn spring-boot:run` funciona igual.
+
+También se puede empaquetar y ejecutar el jar directamente:
+
+```bash
+./mvnw clean package
+java -jar target/agendamiento-citas-1.0.0-SNAPSHOT.jar
+```
 
 La aplicación queda escuchando en `http://localhost:8080`.
 
@@ -81,6 +90,14 @@ propios datos y las aserciones sobre listados no dependan de estos registros.
 |---|---|---|
 | `dev` | `src/main/resources/application-dev.yml` | Ejecución local. **Activo por defecto.** H2 `medisalud_dev`, `ddl-auto: create-drop`, SQL visible en el log, consola H2 abierta. |
 | `test` | `src/test/resources/application-test.yml` | Suite automatizada. H2 `medisalud_test` (base distinta, para que correr los tests no toque los datos con los que estés probando a mano), logging silenciado, estadísticas de Hibernate activas. |
+| `docker` | `src/main/resources/application-docker.yml` | El que usa la imagen. Mismo H2 en memoria, pero **sin consola H2 y sin volcado de SQL**, y con las credenciales por variable de entorno. |
+
+> **Por qué existe el perfil `docker`.** El perfil `dev` deja abierta la consola H2 en
+> `/h2-console`, que ejecuta SQL arbitrario contra la base sin pedir credenciales. En local
+> es cómodo; en un contenedor publicado sería una puerta abierta a los datos de todos los
+> pacientes. Como `spring.profiles.default` es `dev`, un contenedor que no fijara perfil
+> explícitamente acabaría justo ahí. `ConfiguracionDeDespliegueTest` comprueba que el
+> `Dockerfile` activa `docker` y nunca `dev`.
 
 ```bash
 mvn spring-boot:run -Dspring-boot.run.profiles=dev   # explícito, equivale al comando de arriba
@@ -125,6 +142,31 @@ por otro transporte sin arrastrar semántica HTTP hasta el núcleo.
 **Las reglas complejas viven fuera de los servicios.** `ValidadorDeAgendamiento` reúne las
 reglas que debe cumplir una cita y `PoliticaDePenalizaciones` reúne la RN-05 entera. Los
 servicios quedan orquestando: resuelven referencias, delegan y persisten.
+
+### Identificadores: `Long` autogenerado, no UUID
+
+El enunciado deja la elección abierta ("auto-generado o UUID"). Se eligió `Long` con
+`GenerationType.IDENTITY`:
+
+- Las URLs quedan legibles (`/api/citas/7`), lo que importa cuando alguien va a probar la API
+  a mano o desde Swagger.
+- Un índice sobre `bigint` ocupa la mitad que sobre `uuid` y agrupa mejor, y en este modelo
+  todas las consultas críticas van por índice.
+
+UUID sería preferible si los identificadores se expusieran a terceros —un id secuencial
+revela cuántos pacientes hay y permite enumerarlos— o si hubiera generación distribuida sin
+coordinación. Con autenticación por delante, esa sería la razón para cambiarlo.
+
+### Convención de nombres
+
+El dominio va en **español**, porque son los términos del enunciado y del negocio: `Cita`,
+`Medico`, `ValidadorDeAgendamiento`, `PoliticaDePenalizaciones`. Los sufijos y los conceptos
+puramente técnicos van en **inglés**, que es como los nombra el framework: `CitaRepository`,
+`MedicoService`, `CrearCitaRequest`, `OpenApiConfig`, `ClockConfig`.
+
+La regla práctica: si la palabra aparece en el enunciado, va en español; si aparece en la
+documentación de Spring, en inglés. Es la convención habitual en proyectos Spring en
+castellano y evita el resultado peor, que es traducir a medias (`RelojConfiguracion`).
 
 ### Patrones aplicados
 
@@ -280,16 +322,33 @@ paréntesis sugiere que aplica incluso con otro médico.
 Una persona no puede estar en dos consultas simultáneas. Es la lectura amplia, y se eligió
 conscientemente, no por descuido.
 
-### RN-01 · Dónde termina la jornada
+### RN-01 · Dónde termina la jornada (no es un supuesto: está especificado)
 
-"Lunes a viernes 08:00–18:00" no aclara si las 18:00 son la hora de inicio de la última cita
-o la hora a la que cierra la consulta.
+El texto de la RN-01 —"Lunes a viernes 08:00–18:00"— por sí solo no aclara si las 18:00 son
+la hora de inicio de la última cita o la hora de cierre. Pero la sección **Datos de
+Referencia** del enunciado lo resuelve sin ambigüedad:
 
-> **Supuesto adoptado:** son la hora de cierre. Una cita solo es válida si **termina** dentro
-> de la jornada.
+> Franja **20**: 17:30 - 18:00 · En sábado (hasta 13:00): franjas **1-10**
 
-Por tanto la última franja entre semana empieza a las **17:30** y la del sábado a las
-**12:30**. Lo contrario dejaría a un paciente atendido media hora después del cierre.
+> **Comportamiento implementado:** una cita solo es válida si **termina** dentro de la
+> jornada. La última franja entre semana empieza a las **17:30** y la del sábado a las
+> **12:30**. Son exactamente 20 franjas entre semana y 10 el sábado.
+
+Se recoge aquí porque es un borde fácil de equivocar por uno, no porque haya habido que
+decidirlo. `FlujoCompletoTest.bordesDeLasFranjasDelEnunciado` comprueba los cuatro límites
+contra el agendamiento real: 12:30 del sábado se reserva, las 13:00 no; 17:30 entre semana se
+reserva, las 18:00 no.
+
+### RN-02 · Qué citas ocupan una franja
+
+La regla dice "un médico no puede tener dos citas en la misma franja", sin distinguir por
+estado.
+
+> **Supuesto adoptado:** solo las citas en estado `PROGRAMADA` ocupan franja. Una cita
+> cancelada la libera y el horario vuelve a ofrecerse.
+
+De lo contrario cancelar no serviría de nada: el hueco quedaría bloqueado para siempre y la
+RF-05 perdería su sentido. Aplica igual a la RN-04.
 
 ### RN-05 · El límite de las 2 horas
 
@@ -627,10 +686,10 @@ HTTP/1.1 400 Bad Request
 ## 6. Tests
 
 ```bash
-mvn test
+./mvnw test          # o mvn test
 ```
 
-**194 tests en 20 clases.** Cobertura: **98,3 % de líneas**, **90,2 % de ramas**.
+**198 tests en 21 clases.** Cobertura: **98,3 % de líneas**, **90,2 % de ramas**.
 
 El informe de JaCoCo se genera con el mismo comando en
 `target/site/jacoco/index.html`.
@@ -642,6 +701,7 @@ El informe de JaCoCo se genera con el mismo comando en
 | **Rodaja JPA** | `ModeloPersistenciaTest` | Mapeo del grafo completo y las restricciones únicas contra H2 real. |
 | **Rodaja web** | `MedicoControllerTest`, `PacienteControllerTest`, `CitaControllerTest`, `DisponibilidadControllerTest` | Contrato HTTP: códigos de estado, forma de las respuestas y del cuerpo de error. |
 | **Integración end-to-end** | `FlujoCompletoTest`, `CancelacionYPenalizacionTest`, `ReprogramacionTest`, `ListadoDeCitasTest`, `DocumentacionOpenApiTest` | Contexto completo, base de datos y peticiones HTTP reales. |
+| **Configuración de despliegue** | `ConfiguracionDeDespliegueTest` | Que la imagen no arranque con el perfil de desarrollo y deje abierta la consola H2. |
 
 ### Algunos tests que merece la pena mirar
 
@@ -665,6 +725,10 @@ El informe de JaCoCo se genera con el mismo comando en
 - **`BaseEntityTest`** cubre el caso que motivó el `hashCode` constante: una entidad metida en
   un `HashSet` antes de persistirse debe seguir encontrándose después de que JPA le asigne el
   identificador.
+
+- **`FlujoCompletoTest.bordesDeLasFranjasDelEnunciado`** comprueba contra el agendamiento real
+  los cuatro límites de la tabla de *Datos de Referencia*: el sábado se reserva a las 12:30
+  pero no a las 13:00, y entre semana a las 17:30 pero no a las 18:00.
 
 No se impone un umbral de cobertura que rompa la construcción: un mínimo que nadie ajusta
 acaba invitando a escribir tests que solo suman líneas. El informe está para leerlo.
@@ -690,6 +754,8 @@ El `Dockerfile` es multietapa:
 - La aplicación corre con un **usuario sin privilegios**, no como root.
 - `-XX:MaxRAMPercentage=75.0` en lugar de un `-Xmx` fijo, para que la JVM se ajuste al límite
   de memoria que le imponga el orquestador sin reconstruir la imagen.
+- Arranca con el perfil **`docker`**, no `dev`: sin consola H2 y sin volcado de SQL a los
+  logs (ver la nota de la sección 1).
 
 ### Despliegue en la nube
 
