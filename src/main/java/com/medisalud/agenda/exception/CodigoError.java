@@ -44,6 +44,9 @@ public enum CodigoError {
     /** RN-03: el paciente tiene registrada una fecha de nacimiento futura. */
     FECHA_NACIMIENTO_INVALIDA,
 
+    /** El rango de fechas consultado esta invertido o excede el maximo permitido. */
+    RANGO_DE_FECHAS_INVALIDO,
+
     // ----------------------------------------------------------------- 404
 
     /** El recurso solicitado no existe. */

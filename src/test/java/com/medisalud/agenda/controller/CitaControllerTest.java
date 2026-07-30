@@ -13,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.medisalud.agenda.config.ClockConfig;
 import com.medisalud.agenda.domain.EstadoCita;
 import com.medisalud.agenda.dto.CitaResponse;
+import com.medisalud.agenda.dto.MedicoResumen;
+import com.medisalud.agenda.dto.PacienteResumen;
 import com.medisalud.agenda.exception.CodigoError;
 import com.medisalud.agenda.exception.ConflictoDeNegocioException;
 import com.medisalud.agenda.exception.ManejadorGlobalDeErrores;
@@ -167,8 +169,8 @@ class CitaControllerTest {
     private static CitaResponse unaCitaProgramada() {
         return new CitaResponse(
                 10L,
-                new CitaResponse.MedicoResumen(1L, "Dra. María González", "Cardiología"),
-                new CitaResponse.PacienteResumen(2L, "Juan Pérez", "1020304050"),
+                new MedicoResumen(1L, "Dra. María González", "Cardiología"),
+                new PacienteResumen(2L, "Juan Pérez", "1020304050"),
                 LocalDateTime.of(2026, 8, 3, 9, 0),
                 EstadoCita.PROGRAMADA,
                 null,

@@ -2,8 +2,6 @@ package com.medisalud.agenda.dto;
 
 import com.medisalud.agenda.domain.Cita;
 import com.medisalud.agenda.domain.EstadoCita;
-import com.medisalud.agenda.domain.Medico;
-import com.medisalud.agenda.domain.Paciente;
 import java.time.LocalDateTime;
 
 /**
@@ -27,24 +25,6 @@ public record CitaResponse(
         EstadoCita estado,
         LocalDateTime fechaCancelacion,
         Long citaOrigenId) {
-
-    /** Datos del medico suficientes para presentar la cita. */
-    public record MedicoResumen(Long id, String nombreCompleto, String especialidad) {
-
-        static MedicoResumen desde(Medico medico) {
-            return new MedicoResumen(
-                    medico.getId(), medico.getNombreCompleto(), medico.getEspecialidad());
-        }
-    }
-
-    /** Datos del paciente suficientes para presentar la cita. */
-    public record PacienteResumen(Long id, String nombreCompleto, String documentoIdentidad) {
-
-        static PacienteResumen desde(Paciente paciente) {
-            return new PacienteResumen(
-                    paciente.getId(), paciente.getNombreCompleto(), paciente.getDocumentoIdentidad());
-        }
-    }
 
     public static CitaResponse desde(Cita cita) {
         return new CitaResponse(

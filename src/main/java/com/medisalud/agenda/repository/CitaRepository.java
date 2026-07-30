@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -31,13 +33,29 @@ public interface CitaRepository extends JpaRepository<Cita, Long>, JpaSpecificat
             Long pacienteId, LocalDateTime fechaHora, EstadoCita estado);
 
     /**
-     * Citas de un medico dentro de un rango, usadas para descartar franjas ocupadas en el
-     * calculo de disponibilidad (RF-04).
+     * Horas ya ocupadas por un medico dentro de un rango, para descartarlas del calculo de
+     * disponibilidad (RF-04).
+     *
+     * <p>Devuelve solo la columna {@code fecha_hora} y no entidades completas: el calculo
+     * unicamente necesita saber que instantes estan tomados, y materializar cada
+     * {@code Cita} con sus asociaciones para despues descartarlas seria trabajo perdido en
+     * la consulta mas frecuente del sistema.</p>
      *
      * <p>El rango se interpreta como {@code [desde, hasta)}: el limite superior es
-     * exclusivo para que el ultimo slot de un dia no se solape con el primero del
-     * siguiente.</p>
+     * exclusivo para que el ultimo instante de un dia no se solape con el primero del
+     * siguiente. Los parametros van ligados por nombre, nunca concatenados en el JPQL.</p>
      */
-    List<Cita> findByMedicoIdAndEstadoAndFechaHoraGreaterThanEqualAndFechaHoraLessThan(
-            Long medicoId, EstadoCita estado, LocalDateTime desde, LocalDateTime hasta);
+    @Query("""
+            select c.fechaHora
+            from Cita c
+            where c.medico.id = :medicoId
+              and c.estado = :estado
+              and c.fechaHora >= :desde
+              and c.fechaHora < :hasta
+            """)
+    List<LocalDateTime> buscarHorasOcupadas(
+            @Param("medicoId") Long medicoId,
+            @Param("estado") EstadoCita estado,
+            @Param("desde") LocalDateTime desde,
+            @Param("hasta") LocalDateTime hasta);
 }
