@@ -1,5 +1,6 @@
 package com.medisalud.agenda.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
@@ -16,12 +17,14 @@ import com.medisalud.agenda.dto.MedicoResponse;
 import com.medisalud.agenda.exception.ManejadorGlobalDeErrores;
 import com.medisalud.agenda.exception.RecursoNoEncontradoException;
 import com.medisalud.agenda.service.MedicoService;
+import java.nio.charset.StandardCharsets;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -129,11 +132,75 @@ class MedicoControllerTest {
     }
 
     @Test
+    @DisplayName("Un fallo no controlado devuelve 500 sin filtrar nada del interior del sistema")
+    void errorNoControlado() throws Exception {
+        // Mensaje deliberadamente cargado de detalles que jamás deben salir al cliente.
+        willThrow(new IllegalStateException(
+                "Connection refused: jdbc:postgresql://10.0.0.7:5432/medisalud, "
+                        + "usuario 'admin' en com.medisalud.agenda.repository.MedicoRepository"))
+                .given(medicoService).obtenerPorId(1L);
+
+        String cuerpo = mockMvc.perform(get("/api/medicos/1"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.codigo").value("ERROR_INTERNO"))
+                .andExpect(jsonPath("$.timestamp").exists())
+                // El mensaje invita a citar la marca de tiempo: es lo que permite
+                // localizar la traza real en el log del servidor.
+                .andExpect(jsonPath("$.mensaje").value(Matchers.containsString("marca de tiempo")))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(cuerpo)
+                .doesNotContain("jdbc", "postgresql", "10.0.0.7", "admin",
+                        "com.medisalud", "IllegalStateException", "stackTrace");
+    }
+
+    @Test
     @DisplayName("Un método no soportado también respeta el formato de error común")
     void metodoNoSoportado() throws Exception {
         mockMvc.perform(delete("/api/medicos/1"))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.codigo").value("PETICION_INVALIDA"))
+                .andExpect(jsonPath("$.mensaje")
+                        .value("El método HTTP DELETE no está permitido sobre este recurso."))
                 .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    @DisplayName("Una violación de integridad que escapa al servicio se traduce a 409 sin nombrar la restricción")
+    void violacionDeIntegridadNoCapturada() throws Exception {
+        // Red de seguridad del manejador: los servicios interceptan lo que saben explicar,
+        // pero cualquier restricción del esquema que llegue hasta aquí no debe salir como 500
+        // ni revelar el nombre de la tabla o del índice.
+        willThrow(new DataIntegrityViolationException(
+                "could not execute statement [Unique index or primary key violation: "
+                        + "\"PUBLIC.UK_CITA_MEDICO_FRANJA ON PUBLIC.CITAS\"]"))
+                .given(medicoService).obtenerPorId(1L);
+
+        String cuerpo = mockMvc.perform(get("/api/medicos/1"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.codigo").value("CONFLICTO_DE_INTEGRIDAD"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(cuerpo).doesNotContain("PUBLIC", "UK_CITA", "CITAS", "index");
+    }
+
+    @Test
+    @DisplayName("Un tipo de contenido no soportado devuelve 415 con el formato común")
+    void tipoDeContenidoNoSoportado() throws Exception {
+        mockMvc.perform(post("/api/medicos")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("nombre=María"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.codigo").value("PETICION_INVALIDA"))
+                .andExpect(jsonPath("$.mensaje").value(Matchers.containsString("application/json")));
+    }
+
+    @Test
+    @DisplayName("Una ruta inexistente devuelve 404 con el formato común, no la página por defecto")
+    void rutaInexistente() throws Exception {
+        mockMvc.perform(get("/api/medicos/1/inventado"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.codigo").value("RECURSO_NO_ENCONTRADO"))
+                .andExpect(jsonPath("$.mensaje").value("El recurso solicitado no existe."));
     }
 }
