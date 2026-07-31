@@ -1,0 +1,1324 @@
+{
+  "info": {
+    "_postman_id": "b7e4f1a2-9c3d-4e58-a1f6-3d9c2e7b5a40",
+    "name": "MediSalud · Agendamiento de Citas",
+    "description": "Colección completa de la API de agendamiento de citas médicas.\n\n## Cómo usarla\n\n1. Arranca la aplicación: `./mvnw spring-boot:run`\n2. Importa esta colección en Postman.\n3. Ejecútala entera con el **Collection Runner**, o petición a petición de arriba abajo.\n\nLas carpetas están numeradas y **el orden importa**: cada una deja preparado lo que necesita la siguiente. Las peticiones encadenan los identificadores automáticamente, así que no hay que copiar ids a mano.\n\n## Fechas\n\nNo hay ninguna fecha fija. Un script en la colección calcula en cada ejecución el próximo día con atención, el próximo domingo y el día de ayer, de modo que la colección no caduca. Las horas elegidas (09:00, 09:30, 11:00) son válidas también en sábado, que cierra a las 13:00.\n\n## Qué demuestra\n\nAdemás del camino feliz, la colección provoca a propósito los rechazos de cada regla de negocio: franja ocupada por el médico (RN-02) y por el paciente (RN-04), domingo y horas fuera de jornada (RN-01), franja desalineada, fecha pasada y documento duplicado.\n\nCada petición lleva **tests automáticos**: al ejecutar la colección completa deberías ver todas en verde.\n\nVariable `baseUrl`: `http://localhost:8080` por defecto. Cámbiala si usas Docker en otro puerto.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "medicoId", "value": "1", "type": "string" },
+    { "key": "medicoId2", "value": "2", "type": "string" },
+    { "key": "pacienteId", "value": "", "type": "string" },
+    { "key": "pacienteId2", "value": "", "type": "string" },
+    { "key": "citaId", "value": "", "type": "string" },
+    { "key": "documentoPaciente", "value": "", "type": "string" },
+    { "key": "documentoPaciente2", "value": "", "type": "string" },
+    { "key": "fechaLaborable", "value": "", "type": "string" },
+    { "key": "fechaFinRango", "value": "", "type": "string" },
+    { "key": "fechaHoraCita", "value": "", "type": "string" },
+    { "key": "fechaHoraReprogramada", "value": "", "type": "string" },
+    { "key": "fechaHoraDesalineada", "value": "", "type": "string" },
+    { "key": "fechaHoraFueraDeHorario", "value": "", "type": "string" },
+    { "key": "fechaHoraDomingo", "value": "", "type": "string" },
+    { "key": "fechaHoraPasada", "value": "", "type": "string" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Las fechas se calculan en cada ejecución. Una colección con fechas fijas",
+          "// deja de funcionar en cuanto pasa el día en que se escribió, y aquí además",
+          "// la API rechaza cualquier cita en el pasado.",
+          "const dd = (n) => String(n).padStart(2, '0');",
+          "const aIso = (d) => `${d.getFullYear()}-${dd(d.getMonth() + 1)}-${dd(d.getDate())}`;",
+          "",
+          "const hoy = new Date();",
+          "",
+          "// Próximo día con atención: a partir de mañana, saltando domingos.",
+          "const laborable = new Date(hoy);",
+          "laborable.setDate(laborable.getDate() + 1);",
+          "while (laborable.getDay() === 0) {",
+          "    laborable.setDate(laborable.getDate() + 1);",
+          "}",
+          "",
+          "// Próximo domingo, para el caso de 'no hay atención'.",
+          "const domingo = new Date(hoy);",
+          "domingo.setDate(domingo.getDate() + 1);",
+          "while (domingo.getDay() !== 0) {",
+          "    domingo.setDate(domingo.getDate() + 1);",
+          "}",
+          "",
+          "const ayer = new Date(hoy);",
+          "ayer.setDate(ayer.getDate() - 1);",
+          "",
+          "const finRango = new Date(laborable);",
+          "finRango.setDate(finRango.getDate() + 6);",
+          "",
+          "pm.collectionVariables.set('fechaLaborable', aIso(laborable));",
+          "pm.collectionVariables.set('fechaFinRango', aIso(finRango));",
+          "",
+          "// 09:00, 09:30 y 11:00 son franjas válidas cualquier día con atención,",
+          "// incluido el sábado, que cierra a las 13:00.",
+          "pm.collectionVariables.set('fechaHoraCita', aIso(laborable) + 'T09:00:00');",
+          "pm.collectionVariables.set('fechaHoraReprogramada', aIso(laborable) + 'T11:00:00');",
+          "pm.collectionVariables.set('fechaHoraDesalineada', aIso(laborable) + 'T09:15:00');",
+          "pm.collectionVariables.set('fechaHoraFueraDeHorario', aIso(laborable) + 'T19:00:00');",
+          "pm.collectionVariables.set('fechaHoraDomingo', aIso(domingo) + 'T10:00:00');",
+          "pm.collectionVariables.set('fechaHoraPasada', aIso(ayer) + 'T09:00:00');"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1 · Médicos (RF-01)",
+      "description": "Registro y consulta de médicos. La aplicación arranca con tres médicos precargados; aquí se añade uno más.",
+      "item": [
+        {
+          "name": "Registrar médico",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Devuelve la cabecera Location', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.include('/api/medicos/');",
+                  "});",
+                  "const cuerpo = pm.response.json();",
+                  "pm.collectionVariables.set('medicoId', cuerpo.id);",
+                  "pm.test('El médico llega con su especialidad', () => {",
+                  "    pm.expect(cuerpo.especialidad).to.eql('Neurología');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreCompleto\": \"Dr. Iván Ríos\",\n  \"especialidad\": \"Neurología\",\n  \"telefono\": \"555-2001\",\n  \"email\": \"ivan.rios@medisalud.com\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos"]
+            },
+            "description": "Teléfono y email son opcionales. El teléfono, si se envía, necesita al menos 7 dígitos."
+          }
+        },
+        {
+          "name": "Registrar médico · datos inválidos (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('Código de validación', () => {",
+                  "    pm.expect(cuerpo.codigo).to.eql('VALIDACION_FALLIDA');",
+                  "});",
+                  "pm.test('Detalla los cuatro campos que fallan', () => {",
+                  "    pm.expect(cuerpo.detalles).to.have.lengthOf(4);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreCompleto\": \"Ab\",\n  \"especialidad\": \"   \",\n  \"telefono\": \"123\",\n  \"email\": \"no-es-un-email\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos"]
+            },
+            "description": "Nombre demasiado corto, especialidad en blanco (los espacios se normalizan a vacío), teléfono con menos de 7 dígitos y email mal formado. La respuesta detalla los cuatro."
+          }
+        },
+        {
+          "name": "Listar médicos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const medicos = pm.response.json();",
+                  "pm.test('Incluye los tres precargados más el nuevo', () => {",
+                  "    pm.expect(medicos.length).to.be.at.least(4);",
+                  "});",
+                  "// Guarda un segundo médico distinto, necesario para probar la RN-04.",
+                  "const actual = String(pm.collectionVariables.get('medicoId'));",
+                  "const otro = medicos.find(m => String(m.id) !== actual);",
+                  "if (otro) { pm.collectionVariables.set('medicoId2', otro.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos"]
+            },
+            "description": "Ordenados por nombre completo."
+          }
+        },
+        {
+          "name": "Obtener médico por id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}"]
+            }
+          }
+        },
+        {
+          "name": "Obtener médico inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('Código de recurso no encontrado', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('RECURSO_NO_ENCONTRADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/999999",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "999999"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 · Pacientes (RF-02)",
+      "description": "Registro de pacientes. El documento de identidad es único en el sistema.",
+      "item": [
+        {
+          "name": "Registrar paciente",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Documentos distintos en cada ejecución, para poder repetir la colección",
+                  "// sin reiniciar la aplicación y sin chocar con el registro anterior.",
+                  "const sufijo = String(Date.now()).slice(-7);",
+                  "pm.collectionVariables.set('documentoPaciente', '10' + sufijo);",
+                  "pm.collectionVariables.set('documentoPaciente2', '20' + sufijo);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.collectionVariables.set('pacienteId', cuerpo.id);",
+                  "pm.test('Los espacios sobrantes del nombre se recortan', () => {",
+                  "    pm.expect(cuerpo.nombreCompleto).to.eql('Juan Pérez');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreCompleto\": \"   Juan Pérez   \",\n  \"documentoIdentidad\": \"{{documentoPaciente}}\",\n  \"telefono\": \"300 123 4567\",\n  \"email\": \"juan.perez@example.com\",\n  \"fechaNacimiento\": \"1990-05-20\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pacientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pacientes"]
+            },
+            "description": "El nombre va con espacios sobrantes a propósito: la API los recorta antes de validar. La fecha de nacimiento es opcional (RN-03)."
+          }
+        },
+        {
+          "name": "Registrar segundo paciente (sin fecha de nacimiento)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.collectionVariables.set('pacienteId2', cuerpo.id);",
+                  "pm.test('RN-03: sin fecha de nacimiento el campo no viaja en el JSON', () => {",
+                  "    pm.expect(cuerpo.fechaNacimiento).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreCompleto\": \"Ana Torres\",\n  \"documentoIdentidad\": \"{{documentoPaciente2}}\",\n  \"telefono\": \"3009998888\",\n  \"email\": \"ana.torres@example.com\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pacientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pacientes"]
+            },
+            "description": "RN-03: sin fecha de nacimiento se asume edad 0, que es válida y no impide agendar."
+          }
+        },
+        {
+          "name": "Documento ya registrado (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('Código de documento duplicado', () => {",
+                  "    pm.expect(cuerpo.codigo).to.eql('DOCUMENTO_DUPLICADO');",
+                  "});",
+                  "pm.test('El mensaje no repite el documento recibido', () => {",
+                  "    const documento = pm.collectionVariables.get('documentoPaciente');",
+                  "    pm.expect(cuerpo.mensaje).to.not.include(documento);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreCompleto\": \"Otro Juan\",\n  \"documentoIdentidad\": \"{{documentoPaciente}}\",\n  \"telefono\": \"3005554444\",\n  \"email\": \"otro@example.com\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pacientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pacientes"]
+            },
+            "description": "409 y no 500: el conflicto está previsto. El mensaje no devuelve el documento, para no permitir comprobar desde fuera si una persona está registrada."
+          }
+        },
+        {
+          "name": "Fecha de nacimiento futura (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('RN-03: el campo señalado es la fecha de nacimiento', () => {",
+                  "    pm.expect(pm.response.json().detalles[0].campo).to.eql('fechaNacimiento');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreCompleto\": \"Paciente del Futuro\",\n  \"documentoIdentidad\": \"9090909090\",\n  \"telefono\": \"3001112222\",\n  \"email\": \"futuro@example.com\",\n  \"fechaNacimiento\": \"2099-01-01\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pacientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pacientes"]
+            },
+            "description": "RN-03: no se aceptan fechas de nacimiento futuras."
+          }
+        },
+        {
+          "name": "Listar pacientes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pacientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pacientes"]
+            }
+          }
+        },
+        {
+          "name": "Obtener paciente por id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pacientes/{{pacienteId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pacientes", "{{pacienteId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 · Disponibilidad (RF-04)",
+      "description": "Franjas de 30 minutos libres de un médico. Se omiten los domingos, las franjas ya reservadas y las que ya pasaron.",
+      "item": [
+        {
+          "name": "Franjas libres de un día",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('Devuelve franjas agrupadas por día', () => {",
+                  "    pm.expect(cuerpo.dias[0]).to.have.property('franjas');",
+                  "});",
+                  "pm.test('Las franjas empiezan a las 08:00', () => {",
+                  "    pm.expect(cuerpo.dias[0].franjas[0]).to.eql('08:00:00');",
+                  "});",
+                  "console.log('Franjas libres: ' + cuerpo.totalFranjasDisponibles);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}/disponibilidad?fechaInicio={{fechaLaborable}}&fechaFin={{fechaLaborable}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}", "disponibilidad"],
+              "query": [
+                { "key": "fechaInicio", "value": "{{fechaLaborable}}" },
+                { "key": "fechaFin", "value": "{{fechaLaborable}}" }
+              ]
+            },
+            "description": "20 franjas en un día de semana (08:00 a 17:30) y 10 en sábado (08:00 a 12:30). Para reservar, la fechaHora se compone como fecha + \"T\" + franja."
+          }
+        },
+        {
+          "name": "Franjas libres de una semana",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const dias = pm.response.json().dias.map(d => d.fecha);",
+                  "pm.test('Los domingos no aparecen en el listado', () => {",
+                  "    const hayDomingo = dias.some(f => new Date(f + 'T12:00:00').getDay() === 0);",
+                  "    pm.expect(hayDomingo).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}/disponibilidad?fechaInicio={{fechaLaborable}}&fechaFin={{fechaFinRango}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}", "disponibilidad"],
+              "query": [
+                { "key": "fechaInicio", "value": "{{fechaLaborable}}" },
+                { "key": "fechaFin", "value": "{{fechaFinRango}}" }
+              ]
+            },
+            "description": "RN-01: los domingos se omiten por completo del array de días."
+          }
+        },
+        {
+          "name": "Rango de fechas invertido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('Código de rango inválido', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('RANGO_DE_FECHAS_INVALIDO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}/disponibilidad?fechaInicio={{fechaFinRango}}&fechaFin={{fechaLaborable}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}", "disponibilidad"],
+              "query": [
+                { "key": "fechaInicio", "value": "{{fechaFinRango}}" },
+                { "key": "fechaFin", "value": "{{fechaLaborable}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Rango desmesurado (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('El mensaje indica el máximo consultable', () => {",
+                  "    pm.expect(pm.response.json().mensaje).to.include('máximo consultable');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}/disponibilidad?fechaInicio=2026-01-01&fechaFin=2126-01-01",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}", "disponibilidad"],
+              "query": [
+                { "key": "fechaInicio", "value": "2026-01-01" },
+                { "key": "fechaFin", "value": "2126-01-01" }
+              ]
+            },
+            "description": "Sin tope, esta consulta generaría cientos de miles de franjas en memoria. El máximo son 90 días."
+          }
+        },
+        {
+          "name": "Médico inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('404 Not Found', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/999999/disponibilidad?fechaInicio={{fechaLaborable}}&fechaFin={{fechaLaborable}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "999999", "disponibilidad"],
+              "query": [
+                { "key": "fechaInicio", "value": "{{fechaLaborable}}" },
+                { "key": "fechaFin", "value": "{{fechaLaborable}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 · Reservar y consultar citas (RF-03, RF-06)",
+      "item": [
+        {
+          "name": "Reservar cita",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.collectionVariables.set('citaId', cuerpo.id);",
+                  "pm.test('Nace en estado PROGRAMADA', () => {",
+                  "    pm.expect(cuerpo.estado).to.eql('PROGRAMADA');",
+                  "});",
+                  "pm.test('Incluye los datos del médico y del paciente', () => {",
+                  "    pm.expect(cuerpo.medico).to.have.property('nombreCompleto');",
+                  "    pm.expect(cuerpo.paciente).to.have.property('documentoIdentidad');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId}},\n  \"pacienteId\": {{pacienteId}},\n  \"fechaHora\": \"{{fechaHoraCita}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "Aplica RN-01 (horario y franja), RN-02 (agenda del médico), RN-03 (edad) y RN-04 (agenda del paciente)."
+          }
+        },
+        {
+          "name": "Obtener cita por id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/citas/{{citaId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas", "{{citaId}}"]
+            }
+          }
+        },
+        {
+          "name": "La franja reservada desaparece de la disponibilidad",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Las 09:00 ya no se ofrecen', () => {",
+                  "    const franjas = pm.response.json().dias[0].franjas;",
+                  "    pm.expect(franjas).to.not.include('09:00:00');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}/disponibilidad?fechaInicio={{fechaLaborable}}&fechaFin={{fechaLaborable}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}", "disponibilidad"],
+              "query": [
+                { "key": "fechaInicio", "value": "{{fechaLaborable}}" },
+                { "key": "fechaFin", "value": "{{fechaLaborable}}" }
+              ]
+            },
+            "description": "La disponibilidad y el agendamiento comparten el mismo calendario: lo que se reserva deja de ofrecerse."
+          }
+        },
+        {
+          "name": "Listar todas las citas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Hay al menos una cita', () => {",
+                  "    pm.expect(pm.response.json().length).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "Sin filtros devuelve todas, en orden cronológico."
+          }
+        },
+        {
+          "name": "Listar con los cinco filtros combinados",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Todas las citas cumplen los filtros', () => {",
+                  "    const medico = String(pm.collectionVariables.get('medicoId'));",
+                  "    pm.response.json().forEach(c => {",
+                  "        pm.expect(String(c.medico.id)).to.eql(medico);",
+                  "        pm.expect(c.estado).to.eql('PROGRAMADA');",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/citas?medicoId={{medicoId}}&pacienteId={{pacienteId}}&estado=PROGRAMADA&fechaInicio={{fechaLaborable}}&fechaFin={{fechaFinRango}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"],
+              "query": [
+                { "key": "medicoId", "value": "{{medicoId}}" },
+                { "key": "pacienteId", "value": "{{pacienteId}}" },
+                { "key": "estado", "value": "PROGRAMADA" },
+                { "key": "fechaInicio", "value": "{{fechaLaborable}}" },
+                { "key": "fechaFin", "value": "{{fechaFinRango}}" }
+              ]
+            },
+            "description": "Todos los filtros son opcionales y se acumulan con AND. El rango cubre días completos, ambos extremos incluidos."
+          }
+        },
+        {
+          "name": "Filtro con estado inválido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('El mensaje enumera los valores admitidos', () => {",
+                  "    pm.expect(pm.response.json().mensaje).to.include('PROGRAMADA, CANCELADA, ATENDIDA');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/citas?estado=cancelada",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"],
+              "query": [{ "key": "estado", "value": "cancelada" }]
+            },
+            "description": "El enum distingue mayúsculas. En vez de un genérico \"formato inválido\", la respuesta enumera los valores válidos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 · Reglas de negocio · rechazos",
+      "description": "Cada petición de esta carpeta provoca a propósito el rechazo de una regla. Todas dependen de que la cita de la carpeta 4 siga PROGRAMADA, así que ejecuta las carpetas en orden.",
+      "item": [
+        {
+          "name": "RN-02 · El médico ya tiene esa franja (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('Código MEDICO_NO_DISPONIBLE', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('MEDICO_NO_DISPONIBLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId}},\n  \"pacienteId\": {{pacienteId2}},\n  \"fechaHora\": \"{{fechaHoraCita}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "Mismo médico y misma franja, con otro paciente. La unicidad la garantiza además una restricción del esquema, no solo esta comprobación."
+          }
+        },
+        {
+          "name": "RN-04 · El paciente ya tiene esa franja, con otro médico (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('Código PACIENTE_NO_DISPONIBLE', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('PACIENTE_NO_DISPONIBLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId2}},\n  \"pacienteId\": {{pacienteId}},\n  \"fechaHora\": \"{{fechaHoraCita}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "Ambigüedad del enunciado resuelta con la lectura amplia: un paciente no puede tener dos citas a la misma hora con NINGÚN médico, porque una persona no puede estar en dos consultas a la vez."
+          }
+        },
+        {
+          "name": "RN-01 · Domingo sin atención (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('Código FUERA_DE_HORARIO_LABORAL', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('FUERA_DE_HORARIO_LABORAL');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId}},\n  \"pacienteId\": {{pacienteId}},\n  \"fechaHora\": \"{{fechaHoraDomingo}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "400 y no 409: un domingo nunca será laborable, así que la petición fallaría siempre haga lo que haga el sistema."
+          }
+        },
+        {
+          "name": "RN-01 · Franja desalineada, 09:15 (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('Código FRANJA_NO_VALIDA', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('FRANJA_NO_VALIDA');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId}},\n  \"pacienteId\": {{pacienteId}},\n  \"fechaHora\": \"{{fechaHoraDesalineada}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "Las citas ocupan franjas de 30 minutos: solo valen las horas en punto y y media."
+          }
+        },
+        {
+          "name": "RN-01 · Fuera del horario, 19:00 (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('El mensaje indica las franjas de ese día', () => {",
+                  "    pm.expect(pm.response.json().mensaje).to.include('Franjas de ese día');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId}},\n  \"pacienteId\": {{pacienteId}},\n  \"fechaHora\": \"{{fechaHoraFueraDeHorario}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "Entre semana se cierra a las 18:00 y el sábado a las 13:00. El mensaje dice cuáles son las franjas de ese día concreto."
+          }
+        },
+        {
+          "name": "Cita en el pasado (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('Código FECHA_EN_EL_PASADO', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('FECHA_EN_EL_PASADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId}},\n  \"pacienteId\": {{pacienteId}},\n  \"fechaHora\": \"{{fechaHoraPasada}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            },
+            "description": "Supuesto añadido: el enunciado no lo pide, pero agendar en el pasado no describe ninguna operación real y dejaría sin sentido la RN-05."
+          }
+        },
+        {
+          "name": "Paciente inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('404 Not Found', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicoId\": {{medicoId}},\n  \"pacienteId\": 999999,\n  \"fechaHora\": \"{{fechaHoraReprogramada}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6 · Reprogramar y cancelar (RN-06, RF-05, RN-05)",
+      "description": "Reprogramar cierra la cita anterior y abre otra enlazada a ella. Cancelar aplica la penalización si llega con menos de 2 horas de antelación.",
+      "item": [
+        {
+          "name": "Reprogramar cita",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('La cita anterior queda cancelada', () => {",
+                  "    pm.expect(cuerpo.citaAnterior.estado).to.eql('CANCELADA');",
+                  "});",
+                  "pm.test('La nueva queda enlazada a la anterior', () => {",
+                  "    pm.expect(String(cuerpo.citaNueva.citaOrigenId))",
+                  "        .to.eql(String(pm.collectionVariables.get('citaId')));",
+                  "});",
+                  "pm.test('Reprogramar con antelación no penaliza', () => {",
+                  "    pm.expect(cuerpo.penalizacion.registrada).to.be.false;",
+                  "});",
+                  "// A partir de aquí se opera sobre la cita nueva.",
+                  "pm.collectionVariables.set('citaId', cuerpo.citaNueva.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nuevaFechaHora\": \"{{fechaHoraReprogramada}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas/{{citaId}}/reprogramar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas", "{{citaId}}", "reprogramar"]
+            },
+            "description": "Devuelve las dos citas: reprogramar no modifica una cita, cierra una y abre otra. Si el nuevo horario no estuviera libre, la operación completa se desharía y el paciente conservaría la original."
+          }
+        },
+        {
+          "name": "Reprogramar al mismo horario (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('Código REPROGRAMACION_SIN_CAMBIO', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('REPROGRAMACION_SIN_CAMBIO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nuevaFechaHora\": \"{{fechaHoraReprogramada}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/citas/{{citaId}}/reprogramar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas", "{{citaId}}", "reprogramar"]
+            },
+            "description": "Sin esta comprobación explícita, la cita chocaría consigo misma y el mensaje diría que el médico ya tiene una cita ahí, siendo esa cita la suya."
+          }
+        },
+        {
+          "name": "Cancelar cita",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('Queda CANCELADA con su fecha de cancelación', () => {",
+                  "    pm.expect(cuerpo.cita.estado).to.eql('CANCELADA');",
+                  "    pm.expect(cuerpo.cita.fechaCancelacion).to.not.be.undefined;",
+                  "});",
+                  "pm.test('RN-05: cancelar con antelación no penaliza', () => {",
+                  "    pm.expect(cuerpo.penalizacion.registrada).to.be.false;",
+                  "    pm.expect(cuerpo.penalizacion.pacienteBloqueado).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/citas/{{citaId}}/cancelar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas", "{{citaId}}", "cancelar"]
+            },
+            "description": "RN-05: cancelar con menos de 2 horas de antelación registraría una penalización. Como la cita es de mañana, aquí no penaliza.\n\nPara ver la penalización en acción hace falta una cita a menos de 2 horas, y para ver el bloqueo, tres cancelaciones tardías en 30 días. Ese ciclo completo está cubierto por el test de integración `CancelacionYPenalizacionTest`, que manipula el reloj para poder recorrerlo en milisegundos."
+          }
+        },
+        {
+          "name": "Cancelar una cita ya cancelada (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('Código CITA_NO_MODIFICABLE', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('CITA_NO_MODIFICABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/citas/{{citaId}}/cancelar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "citas", "{{citaId}}", "cancelar"]
+            }
+          }
+        },
+        {
+          "name": "La franja cancelada vuelve a estar libre",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('RN-02: una cita cancelada no bloquea la franja', () => {",
+                  "    pm.expect(pm.response.json().dias[0].franjas).to.include('11:00:00');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}/disponibilidad?fechaInicio={{fechaLaborable}}&fechaFin={{fechaLaborable}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}", "disponibilidad"],
+              "query": [
+                { "key": "fechaInicio", "value": "{{fechaLaborable}}" },
+                { "key": "fechaFin", "value": "{{fechaLaborable}}" }
+              ]
+            },
+            "description": "Solo las citas PROGRAMADAS ocupan franja. Al cancelar, el horario vuelve a ofrecerse."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7 · Errores de la propia API",
+      "description": "Todas las respuestas de error comparten el mismo cuerpo, incluidas las que genera Spring MVC.",
+      "item": [
+        {
+          "name": "JSON malformado (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('No filtra detalles internos', () => {",
+                  "    pm.expect(pm.response.text()).to.not.include('com.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{ esto no es json ",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos"]
+            },
+            "description": "El mensaje de Jackson llevaría nombres de clases y paquetes. La respuesta los sustituye por un texto propio."
+          }
+        },
+        {
+          "name": "Identificador mal tipado (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 y no 500', () => pm.response.to.have.status(400));",
+                  "pm.test('Indica qué parámetro falla', () => {",
+                  "    pm.expect(pm.response.json().mensaje).to.include(\"'id'\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/abc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "abc"]
+            }
+          }
+        },
+        {
+          "name": "Método no permitido (405)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('405 Method Not Allowed', () => pm.response.to.have.status(405));",
+                  "pm.test('Respeta el formato de error común', () => {",
+                  "    const c = pm.response.json();",
+                  "    pm.expect(c).to.have.property('codigo');",
+                  "    pm.expect(c).to.have.property('timestamp');",
+                  "    pm.expect(c).to.have.property('ruta');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/medicos/{{medicoId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "medicos", "{{medicoId}}"]
+            },
+            "description": "No hay borrado de médicos. Incluso este error, que genera Spring MVC y no nuestro código, sale con el cuerpo común."
+          }
+        },
+        {
+          "name": "Ruta inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('No devuelve la página por defecto de Spring', () => {",
+                  "    pm.expect(pm.response.json().codigo).to.eql('RECURSO_NO_ENCONTRADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventado",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventado"]
+            }
+          }
+        },
+        {
+          "name": "Documentación OpenAPI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Documenta las nueve rutas', () => {",
+                  "    pm.expect(Object.keys(pm.response.json().paths)).to.have.lengthOf(9);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v3/api-docs",
+              "host": ["{{baseUrl}}"],
+              "path": ["v3", "api-docs"]
+            },
+            "description": "La interfaz interactiva está en {{baseUrl}}/swagger-ui.html"
+          }
+        }
+      ]
+    }
+  ]
+}

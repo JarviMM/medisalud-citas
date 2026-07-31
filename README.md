@@ -436,6 +436,33 @@ Todos devuelven y aceptan JSON. La documentación interactiva está en
 [Swagger UI](http://localhost:8080/swagger-ui.html) con ejemplos precargados en cada
 petición.
 
+### Colección de Postman
+
+En [`postman/`](postman/) hay una colección lista para importar que recorre la API entera:
+**39 peticiones en 7 carpetas numeradas**, encadenando los identificadores automáticamente
+para no tener que copiar ids a mano.
+
+No es la importación cruda del OpenAPI: está ordenada para contar la historia del dominio.
+Después del camino feliz, provoca a propósito el rechazo de cada regla —franja ocupada por el
+médico (RN-02) y por el paciente (RN-04), domingo y horas fuera de jornada (RN-01), franja
+desalineada, fecha pasada, documento duplicado— y termina comprobando que hasta los errores
+de Spring MVC salen con el cuerpo común.
+
+**Ninguna fecha está fija.** Un script de la colección calcula en cada ejecución el próximo
+día con atención, el próximo domingo y el día de ayer, así que no caduca ni hay que editarla.
+Los documentos de identidad también se generan por ejecución, para poder repetirla sin
+reiniciar la aplicación.
+
+Cada petición lleva sus propias aserciones, así que la colección se puede ejecutar entera
+—desde el Collection Runner o por consola— y sirve como prueba de humo del despliegue:
+
+```bash
+npx newman run postman/MediSalud.postman_collection.json
+# 39 peticiones · 80 aserciones · 0 fallos
+```
+
+Si arrancas con Docker en otro puerto, cambia la variable `baseUrl` de la colección.
+
 | Método | Ruta | Descripción | Éxito |
 |---|---|---|---|
 | `POST` | `/api/medicos` | Registrar médico | 201 + `Location` |
