@@ -18,24 +18,34 @@ services:
     restart: unless-stopped
 
     environment:
-      # Nunca `dev`: ese perfil abre la consola H2 en /h2-console, que ejecuta
-      # SQL arbitrario sin pedir credenciales.
+      # Deliberadamente NO configurable. Exponerlo como variable permitiría
+      # poner `dev` desde el panel y reabrir la consola H2 en /h2-console, que
+      # ejecuta SQL arbitrario sin pedir credenciales. Un ajuste que solo puede
+      # empeorar la seguridad no debería estar a un clic de distancia.
       SPRING_PROFILES_ACTIVE: docker
 
       # Base en fichero sobre el volumen, no en memoria: si no, cada redespliegue
       # borraría todo lo que hubiera creado quien esté probando la API.
-      DB_URL: jdbc:h2:file:/datos/medisalud
-      DDL_AUTO: update
+      DB_URL: ${DB_URL:-jdbc:h2:file:/datos/medisalud}
+      DDL_AUTO: ${DDL_AUTO:-update}
       DB_USERNAME: ${DB_USERNAME:-sa}
       DB_PASSWORD: ${DB_PASSWORD:-}
 
       # El horario de atención de la RN-01 está en hora local de la clínica, no
       # en UTC. Sin esto, un servidor en UTC atendería de 03:00 a 13:00 hora de
       # Colombia y rechazaría las citas de la tarde.
-      TZ: America/Bogota
+      TZ: ${TZ:-America/Bogota}
 
       # La JVM se dimensiona con el límite de memoria del contenedor.
-      JAVA_OPTS: -XX:MaxRAMPercentage=75.0 -Duser.timezone=America/Bogota
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75.0}
+
+      # Nivel de log de la aplicación, para diagnosticar sin reconstruir imagen.
+      LOGGING_LEVEL_COM_MEDISALUD_AGENDA: ${LOG_LEVEL:-INFO}
+
+      # Swagger queda accesible porque la documentación viva es parte del
+      # entregable. Se apaga poniendo estas dos a `false`.
+      SPRINGDOC_SWAGGER_UI_ENABLED: ${SWAGGER_HABILITADO:-true}
+      SPRINGDOC_API_DOCS_ENABLED: ${SWAGGER_HABILITADO:-true}
 
     volumes:
       - medisalud-datos:/datos
@@ -56,7 +66,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: ${MEMORIA_LIMITE:-768M}
         reservations:
           memory: 384M
 
@@ -77,13 +87,13 @@ services:
       - traefik.http.services.medisalud.loadbalancer.server.port=8080
 
       # HTTPS con certificado de Let's Encrypt.
-      - traefik.http.routers.medisalud.rule=Host(`medisalud.cuantio.net`)
+      - traefik.http.routers.medisalud.rule=Host(`${DOMINIO:-medisalud.cuantio.net}`)
       - traefik.http.routers.medisalud.entrypoints=websecure
       - traefik.http.routers.medisalud.tls=true
       - traefik.http.routers.medisalud.tls.certresolver=letsencrypt
 
       # HTTP solo para redirigir a HTTPS.
-      - traefik.http.routers.medisalud-http.rule=Host(`medisalud.cuantio.net`)
+      - traefik.http.routers.medisalud-http.rule=Host(`${DOMINIO:-medisalud.cuantio.net}`)
       - traefik.http.routers.medisalud-http.entrypoints=web
       - traefik.http.routers.medisalud-http.middlewares=medisalud-https
       - traefik.http.middlewares.medisalud-https.redirectscheme.scheme=https

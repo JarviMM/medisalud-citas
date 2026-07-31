@@ -51,6 +51,13 @@ replay_pid*
 *.mv.db
 *.trace.db
 
+# --- Variables de entorno del despliegue ---
+# El fichero versionado es .env.example, que solo documenta las variables.
+# El .env real puede llevar credenciales y nunca debe subirse.
+.env
+.env.local
+!.env.example
+
 # --- Sistema operativo ---
 .DS_Store
 Thumbs.db
