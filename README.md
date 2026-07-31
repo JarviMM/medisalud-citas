@@ -6,6 +6,10 @@ disponibilidad y penalización de cancelaciones tardías.
 Construido con **Java 21** y **Spring Boot 3.5**, con base de datos en memoria para poder
 levantarlo con un solo comando y sin instalar nada más.
 
+> **Desplegado en https://medisalud.cuantio.net** ·
+> [Swagger UI](https://medisalud.cuantio.net/swagger-ui.html) ·
+> también se puede levantar en local con un comando (ver más abajo)
+
 ---
 
 ## Índice
@@ -791,53 +795,28 @@ El `Dockerfile` es multietapa:
 - Arranca con el perfil **`docker`**, no `dev`: sin consola H2 y sin volcado de SQL a los
   logs (ver la nota de la sección 1).
 
-### Despliegue con Dokploy
+### Desplegado en la nube
 
-El repositorio incluye un [`docker-compose.yml`](docker-compose.yml) listo para
-[Dokploy](https://dokploy.com). En el panel: **Create → Compose**, apuntarlo a este
-repositorio y dejar `docker-compose.yml` como ruta del fichero.
-
-Está desplegado en **https://medisalud.cuantio.net**
-
-Lo que resuelve el compose, y por qué:
+La API está publicada y accesible en **https://medisalud.cuantio.net**
 
 | | |
 |---|---|
-| **No publica puertos al host** | Traefik llega al contenedor por la red interna `dokploy-network`. Publicar el 8080 dejaría la API accesible por IP, saltándose el dominio, el certificado y cualquier regla del proxy. |
-| **Perfil `docker`** | Nunca `dev`, que abre la consola H2 sin autenticación. |
-| **Base en fichero sobre un volumen** | `DB_URL` apunta a `/datos/medisalud` en vez de a memoria. Sin esto, cada redespliegue borraría lo que hubiera creado quien esté probando la API. Verificado: los datos sobreviven a un `down` + `up` completo. |
-| **`TZ=America/Bogota`** | El horario de atención de la RN-01 está en hora local de la clínica. En un servidor en UTC, la consulta atendería de 03:00 a 13:00 hora de Colombia y rechazaría las citas de la tarde. |
-| **Healthcheck sobre `/api/medicos`** | Todavía no hay Actuator, así que se sondea un endpoint real: comprueba de paso que la web, JPA y la base responden, no solo que el proceso vive. |
-| **Límite de memoria + `MaxRAMPercentage`** | La JVM se dimensiona sola con el límite del contenedor. |
-| **Rotación de logs** | Sin tope, un contenedor que lleva meses en marcha acaba llenando el disco del servidor. |
+| Documentación interactiva | https://medisalud.cuantio.net/swagger-ui.html |
+| Documento OpenAPI | https://medisalud.cuantio.net/v3/api-docs |
 
-El bloque de etiquetas de Traefik registra el dominio, pide el certificado a Let's Encrypt y
-redirige HTTP a HTTPS. Si prefieres gestionar el dominio desde la interfaz de Dokploy, borra
-ese bloque: Dokploy genera sus propias etiquetas y tenerlas duplicadas hace que Traefik
-registre dos routers para el mismo host.
+Corre sobre [Dokploy](https://dokploy.com) con Traefik por delante, HTTPS con certificado de
+Let's Encrypt y la base de datos sobre un volumen, de modo que los datos sobreviven a los
+redespliegues. El [`docker-compose.yml`](docker-compose.yml) del repositorio es el que
+gobierna ese despliegue y lleva comentada cada decisión.
 
-Una vez desplegado, la colección de Postman sirve de prueba de humo:
+La colección de Postman sirve de prueba de humo contra el entorno desplegado:
 
 ```bash
 npx newman run postman/MediSalud.postman_collection.json \
     --env-var baseUrl=https://medisalud.cuantio.net
 ```
 
-### Otras plataformas
-
-El artefacto es un jar autocontenido, así que sirve cualquier plataforma que ejecute
-contenedores. Con la imagen ya construida:
-
-```bash
-# Google Cloud Run
-gcloud run deploy medisalud-citas \
-  --image gcr.io/PROYECTO/medisalud-citas:1.0.0 \
-  --region us-central1 --port 8080 --allow-unauthenticated
-
-# AWS App Runner, Azure Container Apps, Render, Railway, Fly.io: equivalente
-```
-
-**Este despliegue es una demo, no producción.** Lo que faltaría para serlo:
+**Es una demo, no producción.** Lo que faltaría para serlo:
 
 1. **Autenticación y autorización.** Es lo más urgente: la API está abierta y `GET /api/citas`
    devuelve los documentos de identidad de todos los pacientes. El enunciado no la pide, pero
