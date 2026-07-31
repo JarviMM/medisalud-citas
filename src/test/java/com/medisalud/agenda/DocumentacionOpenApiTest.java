@@ -2,6 +2,8 @@ package com.medisalud.agenda;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -11,11 +13,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -111,6 +116,93 @@ class DocumentacionOpenApiTest {
     @DisplayName("Swagger UI responde")
     void interfazDisponible() throws Exception {
         mockMvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
+    }
+
+    @Nested
+    @DisplayName("Selector de servidor")
+    class SelectorDeServidor {
+
+        @Test
+        @DisplayName("El servidor de la petición va primero y los declarados detrás")
+        void elDeducidoEncabezaLaLista() throws Exception {
+            JsonNode servidores = leerDocumento().get("servers");
+
+            // El primero es el que Swagger UI deja seleccionado: tiene que ser
+            // aquel desde el que se abrió la documentación, no un entorno ajeno.
+            assertThat(servidores.get(0).get("description").asText())
+                    .isEqualTo("Generated server url");
+
+            assertThat(urlsDe(servidores))
+                    .contains("https://medisalud.cuantio.net", "http://localhost:8080");
+        }
+
+        @Test
+        @DisplayName("No hay servidores repetidos")
+        void sinDuplicados() throws Exception {
+            List<String> urls = urlsDe(leerDocumento().get("servers"));
+
+            assertThat(urls).doesNotHaveDuplicates();
+        }
+
+        @Test
+        @DisplayName("Pedir el documento dos veces no acumula entradas")
+        void noSeAcumulanEntrePeticiones() throws Exception {
+            int primera = leerDocumento().get("servers").size();
+            int segunda = leerDocumento().get("servers").size();
+
+            // El documento se regenera en cada petición (springdoc.cache.disabled),
+            // así que el personalizador vuelve a correr sobre una lista limpia.
+            assertThat(segunda).isEqualTo(primera);
+        }
+
+        private List<String> urlsDe(JsonNode servidores) {
+            List<String> urls = new ArrayList<>();
+            servidores.forEach(servidor -> urls.add(servidor.get("url").asText()));
+            return urls;
+        }
+    }
+
+    /**
+     * Comportamiento detras de un proxy que termina TLS, como el tunel de Cloudflare del
+     * despliegue. La estrategia de cabeceras reenviadas no se activa por defecto: se
+     * declara en el entorno de despliegue, asi que aqui se fuerza para poder probarla.
+     */
+    @Nested
+    @SpringBootTest(properties = "server.forward-headers-strategy=framework")
+    @AutoConfigureMockMvc
+    @ActiveProfiles("test")
+    @DisplayName("Detrás de un proxy que termina TLS")
+    class DetrasDeUnProxy {
+
+        @Autowired private MockMvc mockMvc;
+
+        @Test
+        @DisplayName("El documento anuncia el dominio público, no el host interno")
+        void anunciaElDominioPublico() throws Exception {
+            // Sin esto, Swagger UI servido por https publicaría un servidor http y el
+            // navegador bloquearía cada "Try it out" por contenido mixto.
+            mockMvc.perform(get("/v3/api-docs")
+                            .header("X-Forwarded-Proto", "https")
+                            .header("X-Forwarded-Host", "medisalud.cuantio.net")
+                            .header("X-Forwarded-Port", "443"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.servers[0].url").value("https://medisalud.cuantio.net"));
+        }
+
+        @Test
+        @DisplayName("La cabecera Location de un 201 sale con el esquema y host públicos")
+        void locationConEsquemaPublico() throws Exception {
+            mockMvc.perform(post("/api/medicos")
+                            .header("X-Forwarded-Proto", "https")
+                            .header("X-Forwarded-Host", "medisalud.cuantio.net")
+                            .header("X-Forwarded-Port", "443")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"nombreCompleto":"Dra. Proxy Test","especialidad":"Cardiología"}"""))
+                    .andExpect(status().isCreated())
+                    .andExpect(header().string("Location",
+                            Matchers.startsWith("https://medisalud.cuantio.net/api/medicos/")));
+        }
     }
 
     private JsonNode leerDocumento() throws Exception {

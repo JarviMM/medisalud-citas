@@ -9,7 +9,9 @@ import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.servers.Server;
 import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -17,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
  * Documentacion de la API.
  */
 @Configuration
+@EnableConfigurationProperties(PropiedadesDeOpenApi.class)
 public class OpenApiConfig {
 
     private static final String ESQUEMA_ERROR = "ErrorResponse";
@@ -61,6 +64,32 @@ public class OpenApiConfig {
         // desde el dominio público apuntaba las pruebas a la máquina de quien lo
         // abría. Sin esa lista, springdoc deduce el servidor de la petición en
         // curso y funciona igual en local que detrás del proxy.
+    }
+
+    /**
+     * Anade al selector de Swagger UI los entornos declarados en configuracion.
+     *
+     * <p>Se <b>anaden</b> al servidor que springdoc deduce de la peticion, que sigue siendo
+     * el primero de la lista y por tanto el que Swagger UI deja seleccionado. Abrir la
+     * documentacion en el dominio publico prueba contra el dominio publico, y abrirla en
+     * local prueba contra local; el resto son alternativas a un clic.</p>
+     *
+     * <p>Se descarta el que coincida con el deducido para no verlo duplicado, y esa misma
+     * comprobacion evita que las entradas se acumulen si springdoc reutiliza el documento
+     * entre peticiones.</p>
+     */
+    @Bean
+    public OpenApiCustomizer servidoresDeclarados(PropiedadesDeOpenApi propiedades) {
+        return openApi -> propiedades.servidores().forEach(declarado -> {
+            boolean yaPresente = openApi.getServers() != null
+                    && openApi.getServers().stream()
+                            .anyMatch(existente -> declarado.url().equals(existente.getUrl()));
+            if (!yaPresente) {
+                openApi.addServersItem(new Server()
+                        .url(declarado.url())
+                        .description(declarado.descripcion()));
+            }
+        });
     }
 
     /**

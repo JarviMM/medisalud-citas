@@ -41,3 +41,25 @@ springdoc:
     operations-sorter: method
   api-docs:
     path: /v3/api-docs
+  cache:
+    # El documento se regenera en cada petición en lugar de cachearse. springdoc
+    # deduce el servidor de la petición que lo construye, así que con caché la
+    # primera visita congela ese valor para todas las demás: si un sondeo
+    # interno llegara antes que el primer usuario, la documentación pública
+    # quedaría anunciando localhost. Regenerarlo cuesta unos milisegundos y solo
+    # afecta a /v3/api-docs, no a la API.
+    disabled: true
+
+medisalud:
+  openapi:
+    # Entornos que Swagger UI ofrece en su desplegable de servidor. Son
+    # ADICIONALES al que springdoc deduce de la petición, que sigue apareciendo
+    # el primero y queda seleccionado por defecto: abrir la documentación en el
+    # dominio público prueba contra el dominio público, y abrirla en local
+    # prueba contra local. El que coincida con el deducido se descarta para no
+    # verlo repetido.
+    servidores:
+      - url: https://medisalud.cuantio.net
+        descripcion: Entorno desplegado
+      - url: http://localhost:8080
+        descripcion: Entorno local
