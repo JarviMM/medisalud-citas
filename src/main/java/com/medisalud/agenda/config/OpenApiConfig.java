@@ -9,8 +9,6 @@ import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
-import io.swagger.v3.oas.models.servers.Server;
-import java.util.List;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -57,9 +55,12 @@ public class OpenApiConfig {
                                 sistema (un domingo, una hora desalineada) y **409** cuando choca con el estado
                                 actual y podría funcionar más tarde (franja ocupada, paciente bloqueado).
                                 """)
-                        .license(new License().name("MIT")))
-                .servers(List.of(
-                        new Server().url("http://localhost:8080").description("Entorno local")));
+                        .license(new License().name("MIT")));
+        // Deliberadamente sin `servers`: fijar la lista a mano congelaba el
+        // documento en http://localhost:8080, de modo que Swagger UI servido
+        // desde el dominio público apuntaba las pruebas a la máquina de quien lo
+        // abría. Sin esa lista, springdoc deduce el servidor de la petición en
+        // curso y funciona igual en local que detrás del proxy.
     }
 
     /**

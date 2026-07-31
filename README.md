@@ -804,10 +804,21 @@ La API está publicada y accesible en **https://medisalud.cuantio.net**
 | Documentación interactiva | https://medisalud.cuantio.net/swagger-ui.html |
 | Documento OpenAPI | https://medisalud.cuantio.net/v3/api-docs |
 
-Corre sobre [Dokploy](https://dokploy.com) con Traefik por delante, HTTPS con certificado de
-Let's Encrypt y la base de datos sobre un volumen, de modo que los datos sobreviven a los
-redespliegues. El [`docker-compose.yml`](docker-compose.yml) del repositorio es el que
-gobierna ese despliegue y lleva comentada cada decisión.
+Corre sobre [Dokploy](https://dokploy.com) autoalojado, con Traefik enrutando por dominio y
+la base de datos sobre un volumen, de modo que los datos sobreviven a los redespliegues. El
+[`docker-compose.yml`](docker-compose.yml) del repositorio es el que gobierna ese despliegue
+y lleva comentada cada decisión.
+
+El servidor no está expuesto directamente a internet: sale a través de un **túnel de
+Cloudflare**, que termina TLS en su borde. De ahí dos cosas que llaman la atención al leer el
+compose y que son deliberadas: no hay certificado de Let's Encrypt —no haría falta, y el
+desafío HTTP-01 no podría validarse sin un puerto abierto— y no hay redirección de HTTP a
+HTTPS, que con el túnel provocaría un bucle infinito. Forzar HTTPS es tarea del borde.
+
+Lo que sí hace falta es que la aplicación respete las cabeceras `X-Forwarded-*`: sin eso, y
+como el contenedor recibe HTTP, la cabecera `Location` de cada 201 y la URL de servidor que
+publica Swagger saldrían con `http://`, y el navegador bloquearía las llamadas de *Try it
+out* por contenido mixto.
 
 La colección de Postman sirve de prueba de humo contra el entorno desplegado:
 

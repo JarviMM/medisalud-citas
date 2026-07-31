@@ -36,6 +36,17 @@ services:
       # Colombia y rechazaría las citas de la tarde.
       TZ: ${TZ:-America/Bogota}
 
+      # Detrás del túnel, la petición llega a la aplicación por HTTP aunque el
+      # navegador esté en HTTPS, y el esquema real solo viaja en las cabeceras
+      # X-Forwarded-*. Sin esto la aplicación las ignora y construye sus URL
+      # absolutas con el esquema que ve:
+      #   - la cabecera Location de cada 201 saldría con http://
+      #   - Swagger UI publicaría un servidor http:// y el navegador bloquearía
+      #     todas las llamadas de "Try it out" por contenido mixto
+      # Confiar en esas cabeceras es seguro aquí porque el contenedor no publica
+      # puertos: solo Traefik puede hablar con él, y es quien las pone.
+      SERVER_FORWARD_HEADERS_STRATEGY: ${FORWARD_HEADERS:-framework}
+
       # La JVM se dimensiona con el límite de memoria del contenedor.
       JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75.0}
 
@@ -78,6 +89,24 @@ services:
         max-size: "10m"
         max-file: "3"
 
+    # -----------------------------------------------------------------------
+    # El tráfico entra por un túnel de Cloudflare: `cloudflared` corre en esta
+    # misma red y entrega a Traefik por HTTP. De ahí que el router escuche en el
+    # entrypoint `web` y que no haya ni certresolver ni redirección a HTTPS.
+    #
+    # - El certificado público lo pone Cloudflare en su borde. Let's Encrypt no
+    #   podría emitir uno aquí ni queriendo: el desafío HTTP-01 necesita alcanzar
+    #   el servidor por el puerto 80 desde internet, y con un túnel no hay
+    #   ningún puerto abierto que validar.
+    # - Con Cloudflare en modo Flexible el origen recibe HTTP. Una redirección a
+    #   HTTPS devolvería al visitante a Cloudflare, que volvería a entrar por
+    #   HTTP: bucle infinito. Forzar HTTPS es tarea del borde, con la regla
+    #   "Always Use HTTPS" de Cloudflare.
+    #
+    # Si algún día se expone el servidor directamente, con los puertos 80 y 443
+    # abiertos, hay que poner TRAEFIK_ENTRYPOINT=websecure y devolver aquí el
+    # `tls.certresolver=letsencrypt` y la redirección.
+    # -----------------------------------------------------------------------
     labels:
       # Si prefieres gestionar el dominio desde la interfaz de Dokploy, borra
       # este bloque entero: Dokploy genera sus propias etiquetas y tenerlas
@@ -85,19 +114,8 @@ services:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
       - traefik.http.services.medisalud.loadbalancer.server.port=8080
-
-      # HTTPS con certificado de Let's Encrypt.
       - traefik.http.routers.medisalud.rule=Host(`${DOMINIO:-medisalud.cuantio.net}`)
-      - traefik.http.routers.medisalud.entrypoints=websecure
-      - traefik.http.routers.medisalud.tls=true
-      - traefik.http.routers.medisalud.tls.certresolver=letsencrypt
-
-      # HTTP solo para redirigir a HTTPS.
-      - traefik.http.routers.medisalud-http.rule=Host(`${DOMINIO:-medisalud.cuantio.net}`)
-      - traefik.http.routers.medisalud-http.entrypoints=web
-      - traefik.http.routers.medisalud-http.middlewares=medisalud-https
-      - traefik.http.middlewares.medisalud-https.redirectscheme.scheme=https
-      - traefik.http.middlewares.medisalud-https.redirectscheme.permanent=true
+      - traefik.http.routers.medisalud.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
 
 # Red que crea Dokploy al instalarse y en la que vive Traefik. Es externa
 # porque no la gestiona este compose: ya existe en el servidor.
