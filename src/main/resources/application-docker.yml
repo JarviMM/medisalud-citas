@@ -12,7 +12,12 @@
 # ---------------------------------------------------------------------------
 spring:
   datasource:
-    url: jdbc:h2:mem:medisalud;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    # Por defecto H2 en memoria, para que `docker run` a secas funcione sin
+    # montar nada. Un despliegue con volumen apunta DB_URL a fichero
+    # (jdbc:h2:file:/datos/medisalud) y los datos sobreviven a los reinicios,
+    # que es lo que se espera de una demo con dominio propio: quien la pruebe
+    # hoy debe encontrar sus datos mañana.
+    url: ${DB_URL:jdbc:h2:mem:medisalud;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE}
     driver-class-name: org.h2.Driver
     # Credenciales por variable de entorno, nunca fijadas en el fichero.
     username: ${DB_USERNAME:sa}
@@ -20,7 +25,9 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      # create-drop con base en memoria; `update` cuando hay persistencia, para
+      # no borrar el esquema en cada arranque.
+      ddl-auto: ${DDL_AUTO:create-drop}
     # Sin volcado de SQL: los logs de un contenedor van a un agregador y no
     # deben arrastrar los valores de cada sentencia.
     show-sql: false

@@ -31,6 +31,13 @@ FROM eclipse-temurin:21-jre-alpine AS ejecucion
 # contenedor, no lo hace como root.
 RUN addgroup -S medisalud && adduser -S -G medisalud medisalud
 
+# Directorio donde vive la base cuando el despliegue monta un volumen. Se crea
+# aquí, en la imagen, y no solo en el compose: un volumen nombrado hereda el
+# propietario del directorio que encuentra en la imagen al crearse. Si no
+# existiera, Docker lo crearía como root y la aplicación, que corre sin
+# privilegios, no podría escribir en él.
+RUN mkdir -p /datos && chown medisalud:medisalud /datos
+
 WORKDIR /aplicacion
 
 # El propietario se fija en el propio COPY, no con un RUN chown posterior. Las

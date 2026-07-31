@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# Despliegue en Dokploy · https://medisalud.cuantio.net
+#
+# En Dokploy: crear una aplicación de tipo "Compose", apuntarla a este
+# repositorio y dejar `docker-compose.yml` como ruta del fichero.
+#
+# El servicio NO publica puertos al host a propósito. Traefik, que Dokploy ya
+# tiene delante, llega al contenedor por la red interna `dokploy-network`.
+# Publicar el 8080 lo dejaría además accesible por IP, saltándose el dominio,
+# el certificado y cualquier regla que se ponga en el proxy.
+# ---------------------------------------------------------------------------
+services:
+  medisalud:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: medisalud/agendamiento-citas:1.0.1
+    restart: unless-stopped
+
+    environment:
+      # Nunca `dev`: ese perfil abre la consola H2 en /h2-console, que ejecuta
+      # SQL arbitrario sin pedir credenciales.
+      SPRING_PROFILES_ACTIVE: docker
+
+      # Base en fichero sobre el volumen, no en memoria: si no, cada redespliegue
+      # borraría todo lo que hubiera creado quien esté probando la API.
+      DB_URL: jdbc:h2:file:/datos/medisalud
+      DDL_AUTO: update
+      DB_USERNAME: ${DB_USERNAME:-sa}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+
+      # El horario de atención de la RN-01 está en hora local de la clínica, no
+      # en UTC. Sin esto, un servidor en UTC atendería de 03:00 a 13:00 hora de
+      # Colombia y rechazaría las citas de la tarde.
+      TZ: America/Bogota
+
+      # La JVM se dimensiona con el límite de memoria del contenedor.
+      JAVA_OPTS: -XX:MaxRAMPercentage=75.0 -Duser.timezone=America/Bogota
+
+    volumes:
+      - medisalud-datos:/datos
+
+    networks:
+      - dokploy-network
+
+    # Sin Actuator todavía, así que se sondea un endpoint real: comprueba de
+    # paso que la web, JPA y la base responden, no solo que el proceso vive.
+    # `wget` viene de busybox en la imagen alpine.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/api/medicos"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 384M
+
+    # Sin tope, los logs de un contenedor que lleva meses en marcha acaban
+    # llenando el disco del servidor.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    labels:
+      # Si prefieres gestionar el dominio desde la interfaz de Dokploy, borra
+      # este bloque entero: Dokploy genera sus propias etiquetas y tenerlas
+      # duplicadas hace que Traefik registre dos routers para el mismo host.
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.services.medisalud.loadbalancer.server.port=8080
+
+      # HTTPS con certificado de Let's Encrypt.
+      - traefik.http.routers.medisalud.rule=Host(`medisalud.cuantio.net`)
+      - traefik.http.routers.medisalud.entrypoints=websecure
+      - traefik.http.routers.medisalud.tls=true
+      - traefik.http.routers.medisalud.tls.certresolver=letsencrypt
+
+      # HTTP solo para redirigir a HTTPS.
+      - traefik.http.routers.medisalud-http.rule=Host(`medisalud.cuantio.net`)
+      - traefik.http.routers.medisalud-http.entrypoints=web
+      - traefik.http.routers.medisalud-http.middlewares=medisalud-https
+      - traefik.http.middlewares.medisalud-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.medisalud-https.redirectscheme.permanent=true
+
+# Red que crea Dokploy al instalarse y en la que vive Traefik. Es externa
+# porque no la gestiona este compose: ya existe en el servidor.
+networks:
+  dokploy-network:
+    external: true
+
+# Volumen nombrado: sobrevive a `docker compose down` y a cada redespliegue.
+# Se borra solo con `docker volume rm`.
+volumes:
+  medisalud-datos:

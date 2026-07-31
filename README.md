@@ -791,7 +791,39 @@ El `Dockerfile` es multietapa:
 - Arranca con el perfil **`docker`**, no `dev`: sin consola H2 y sin volcado de SQL a los
   logs (ver la nota de la sección 1).
 
-### Despliegue en la nube
+### Despliegue con Dokploy
+
+El repositorio incluye un [`docker-compose.yml`](docker-compose.yml) listo para
+[Dokploy](https://dokploy.com). En el panel: **Create → Compose**, apuntarlo a este
+repositorio y dejar `docker-compose.yml` como ruta del fichero.
+
+Está desplegado en **https://medisalud.cuantio.net**
+
+Lo que resuelve el compose, y por qué:
+
+| | |
+|---|---|
+| **No publica puertos al host** | Traefik llega al contenedor por la red interna `dokploy-network`. Publicar el 8080 dejaría la API accesible por IP, saltándose el dominio, el certificado y cualquier regla del proxy. |
+| **Perfil `docker`** | Nunca `dev`, que abre la consola H2 sin autenticación. |
+| **Base en fichero sobre un volumen** | `DB_URL` apunta a `/datos/medisalud` en vez de a memoria. Sin esto, cada redespliegue borraría lo que hubiera creado quien esté probando la API. Verificado: los datos sobreviven a un `down` + `up` completo. |
+| **`TZ=America/Bogota`** | El horario de atención de la RN-01 está en hora local de la clínica. En un servidor en UTC, la consulta atendería de 03:00 a 13:00 hora de Colombia y rechazaría las citas de la tarde. |
+| **Healthcheck sobre `/api/medicos`** | Todavía no hay Actuator, así que se sondea un endpoint real: comprueba de paso que la web, JPA y la base responden, no solo que el proceso vive. |
+| **Límite de memoria + `MaxRAMPercentage`** | La JVM se dimensiona sola con el límite del contenedor. |
+| **Rotación de logs** | Sin tope, un contenedor que lleva meses en marcha acaba llenando el disco del servidor. |
+
+El bloque de etiquetas de Traefik registra el dominio, pide el certificado a Let's Encrypt y
+redirige HTTP a HTTPS. Si prefieres gestionar el dominio desde la interfaz de Dokploy, borra
+ese bloque: Dokploy genera sus propias etiquetas y tenerlas duplicadas hace que Traefik
+registre dos routers para el mismo host.
+
+Una vez desplegado, la colección de Postman sirve de prueba de humo:
+
+```bash
+npx newman run postman/MediSalud.postman_collection.json \
+    --env-var baseUrl=https://medisalud.cuantio.net
+```
+
+### Otras plataformas
 
 El artefacto es un jar autocontenido, así que sirve cualquier plataforma que ejecute
 contenedores. Con la imagen ya construida:
@@ -805,17 +837,20 @@ gcloud run deploy medisalud-citas \
 # AWS App Runner, Azure Container Apps, Render, Railway, Fly.io: equivalente
 ```
 
-**Antes de un despliegue real** habría que resolver, como mínimo:
+**Este despliegue es una demo, no producción.** Lo que faltaría para serlo:
 
-1. **Base de datos gestionada** (PostgreSQL) con las credenciales en variables de entorno o en
-   un gestor de secretos, nunca en el repositorio, y un perfil `prod` con
-   `ddl-auto: validate` más migraciones versionadas.
-2. **Autenticación y autorización.** El enunciado no las pide y la API está completamente
-   abierta: hoy cualquiera puede listar los datos de todos los pacientes.
-3. **Actuator** para *liveness* y *readiness*, que es lo que necesita el orquestador para
-   saber si el contenedor está sano. Con eso se podría añadir un `HEALTHCHECK` al Dockerfile.
-4. **HTTPS** terminado en el balanceador, y CORS configurado para los orígenes del frontend.
-5. **Límite de peticiones** por IP, especialmente en los endpoints de consulta.
+1. **Autenticación y autorización.** Es lo más urgente: la API está abierta y `GET /api/citas`
+   devuelve los documentos de identidad de todos los pacientes. El enunciado no la pide, pero
+   con un dominio público delante deja de ser un detalle académico.
+2. **Base de datos gestionada** (PostgreSQL) con las credenciales en un gestor de secretos, y
+   `ddl-auto: validate` más migraciones versionadas. H2 en fichero sobrevive a los
+   redespliegues, pero no tiene copias de seguridad, ni réplica, ni forma cómoda de
+   inspeccionar los datos.
+3. **Actuator** para *liveness* y *readiness*. El healthcheck actual sondea `/api/medicos`,
+   que funciona pero mezcla el estado de salud con un endpoint de negocio.
+4. **CORS** configurado para los orígenes del frontend que consuma la API.
+5. **Límite de peticiones** por IP, y valorar apagar Swagger UI en el entorno público
+   (`springdoc.swagger-ui.enabled=false`).
 
 ---
 
